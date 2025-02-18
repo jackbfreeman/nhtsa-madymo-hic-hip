@@ -1,0 +1,199 @@
+---
+title: "MADYMO_Library"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r setup}
+library(dplyr)
+library(tidyr)
+```
+
+
+```{r create csv from all required iterations}
+# Create a vector of deltaV values from 5 to 35
+deltaV_mph_long <- 5:65
+
+# Create vectors for the other columns
+seat <- c(11, 13)
+seatbelt <- c(0, 1)
+airbag <- c(0, 1)
+
+# Generate all possible combinations of the values, establish lat deltaV as 0 for straight frontal crashes
+combinations <- expand.grid(deltaV_mph_long = deltaV_mph_long, seat = seat, seatbelt = seatbelt, airbag = airbag, deltaV_mph_lat = 0)
+
+# Create a dataframe from the combinations
+lib_list_df <- data.frame(combinations) %>%
+  mutate(deltaV_kph_long = deltaV_mph_long * -1.60934, deltaV_kph_lat = deltaV_mph_lat * 1.60934)
+
+
+# Print the first few rows of the dataframe
+head(lib_list_df)
+ 
+
+write.csv(lib_list_df, "lib_list_df.csv", row.names=FALSE)
+
+
+```
+
+```{python copy and alter MADYMO simulations}
+import csv
+import os
+import shutil
+import xml.etree.ElementTree as ET
+from xml.dom import minidom
+
+def create_folders(row, parent_dir):
+    deltaV_mph_long = str(row['deltaV_mph_long'])
+    seat_var = int(row['seat'])
+    seatbelt_var = int(row['seatbelt'])
+    airbag_var = int(row['airbag'])
+
+    mph_folder = deltaV_mph_long + "_mph"
+    seat_folder = "driver" if seat_var == 11 else "pass" if seat_var == 13 else "unknown"
+    belt_folder = "belt" if seatbelt_var == 1 else "nobelt" if seatbelt_var == 0 else "unknown"
+    airbag_folder = "airbag" if airbag_var == 1 else "noairbag" if airbag_var == 0 else "unknown"
+
+    folder_path = os.path.join(parent_dir, mph_folder, seat_folder, belt_folder, airbag_folder)
+
+    if os.path.exists(folder_path) and os.path.isdir(folder_path):
+        shutil.rmtree(folder_path)
+
+    os.makedirs(folder_path)
+    print(f'Created folder: {folder_path}')
+    return folder_path
+
+def copy_files(source_dir, target_dir, row):
+    for root, dirs, files in os.walk(source_dir):
+        relative_path = os.path.relpath(root, source_dir)
+        target_subdir = os.path.join(target_dir, relative_path)
+
+        for file in files:
+            source_file = os.path.join(root, file)
+            target_file = os.path.join(target_subdir, file)
+
+            os.makedirs(target_subdir, exist_ok=True)
+
+            if file == 'madymo.xml':
+                try:
+                    tree = ET.parse(source_file)
+                    xml_root = tree.getroot()
+
+                    for define_element in xml_root.findall('.//DEFINE'):
+                        var_name = define_element.get('VAR_NAME')
+                        if var_name == 'Delta_V_long_kph':
+                            define_element.set('VALUE', str(row['deltaV_kph_long']))
+                        elif var_name == 'Delta_V_lat_kph':
+                            define_element.set('VALUE', str(row['deltaV_kph_lat']))
+
+                    declaration = '<?xml version="1.0" encoding="UTF-8" standalone="no"?>\n<!DOCTYPE MADYMO SYSTEM "mtd_3d.dtd">'
+                    xml_str = ET.tostring(xml_root, encoding='utf-8').decode()
+                    xml_str = declaration + '\n' + xml_str
+
+                    with open(target_file, 'w', encoding='utf-8') as f:
+                        f.write(xml_str)
+                    print(f"Modified and copied XML file: {source_file} to {target_file}")
+                except Exception as e:
+                    print(f"Error processing XML file: {source_file}")
+                    print(e)
+            else:
+                try:
+                    shutil.copy2(source_file, target_file)
+                    print(f"Copied file: {source_file} to {target_file}")
+                except Exception as e:
+                    print(f"Error copying file: {source_file} to {target_file}")
+                    print(e)
+
+def copy_templates(template_dir, destination_dir, row):
+    if not os.path.exists(template_dir):
+        print(f"Template directory does not exist: {template_dir}")
+        return
+
+    # Copy files from the template directory
+    if os.path.exists(template_dir):
+        copy_files(template_dir, destination_dir, row)
+
+csv_file = 'lib_list_df.csv'
+parent_directory = os.path.join("..", "data", "simulations")
+template_directory = os.path.join("..", "data", "Templates")
+
+with open(csv_file, 'r', newline='') as csv_file:
+    csv_reader = csv.DictReader(csv_file)
+    for row in csv_reader:
+        folder_path = create_folders(row, parent_directory)
+
+        if 'driver' in folder_path:
+            if row['seat'] == '11':
+                if row['seatbelt'] == '0' and row['airbag'] == '0':
+                    template_name = "TEMPLATE DRV noSB noAB"
+                elif row['seatbelt'] == '1' and row['airbag'] == '1':
+                    template_name = "TEMPLATE DRV yesSB yesAB"
+                elif row['seatbelt'] == '1' and row['airbag'] == '0':
+                    template_name = "TEMPLATE DRV yesSB noAB"
+                elif row['seatbelt'] == '0' and row['airbag'] == '1':
+                    template_name = "TEMPLATE DRV noSB yesAB"
+                else:
+                    raise ValueError("Invalid combination of seat, seatbelt, and airbag")
+            else:
+                raise ValueError("Invalid seat location")
+        elif 'pass' in folder_path:
+            if row['seat'] == '13':
+                if row['seatbelt'] == '0' and row['airbag'] == '0':
+                    template_name = "TEMPLATE PSG noSB noAB"
+                elif row['seatbelt'] == '1' and row['airbag'] == '1':
+                    template_name = "TEMPLATE PSG yesSB yesAB"
+                elif row['seatbelt'] == '1' and row['airbag'] == '0':
+                    template_name = "TEMPLATE PSG yesSB noAB"
+                elif row['seatbelt'] == '0' and row['airbag'] == '1':
+                    template_name = "TEMPLATE PSG noSB yesAB"
+                else:
+                    raise ValueError("Invalid combination of seat, seatbelt, and airbag")
+            else:
+                raise ValueError("Invalid seat location")
+        else:
+            raise ValueError("Invalid folder path")
+
+        template_dir = os.path.join(template_directory, template_name)
+
+        copy_templates(template_dir, folder_path, row)
+        
+```
+```{python create batch madymo bash exe}
+import csv
+
+# Initialize the content of the batch file
+batch_content = ''
+
+# Read data from the CSV file
+with open('lib_list_df.csv', 'r') as csv_file:
+    csv_reader = csv.DictReader(csv_file)
+    
+    for row in csv_reader:
+        deltaV_mph_long = row['deltaV_mph_long']
+        seat = int(row['seat'])
+        seatbelt = int(row['seatbelt'])
+        airbag = int(row['airbag'])
+        
+        # Define folder names based on column values
+        mph_folder = f'{deltaV_mph_long}_mph'
+        pass_folder = 'pass' if seat == 13 else 'driver'
+        belt_folder = 'nobelt' if seatbelt == 0 else 'belt'
+        airbag_folder = 'noairbag' if airbag == 0 else 'airbag'
+        
+        # Create the full folder path
+        folder_path = f'C:\\Users\\jackb\\OneDrive - Maastricht University\\Jack_MADYMO\\MADYMO-Library\\data\\simulations\\{mph_folder}\\{pass_folder}\\{belt_folder}\\{airbag_folder}\\madymo'
+        
+        # Add the command to the batch content
+        batch_content += f'cd /d "{folder_path}"\n"C:\\Program Files\\Madymo\\madymo_2212\\em64t-win\\bin\\madymo2212.exe" "madymo.xml"\n'
+
+# Write the batch content to a single .bat file
+with open('run_simulations.bat', 'w') as batch_file:
+    batch_file.write(batch_content)
+    
+# Write the batch content to a single .bat file
+with open('run_simulations_test.bat', 'w') as batch_file:
+    batch_file.write(batch_content)
+```
+
+

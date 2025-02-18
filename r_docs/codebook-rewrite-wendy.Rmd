@@ -1,0 +1,115 @@
+```{r, setup}
+library(tidyverse)
+library(haven)
+library(survey)
+data_path_2000_2015 <- file.path("data", "NHTSA_databases", "NHTSA All files")
+```
+
+
+```{r load and join oi and oa}
+# Helper function to process data for each year
+process_year <- function(year) {
+  # Load datasets (replace paths as necessary)
+  oi <- read_sas(file.path(data_path_2000_2015, paste0(year, "oi.sas7bdat")))
+  oa <- read_sas(file.path(data_path_2000_2015, paste0(year, "oa.sas7bdat")))
+  gv <- read_sas(file.path(data_path_2000_2015, paste0(year, "gv.sas7bdat")))
+  ve <- read_sas(file.path(data_path_2000_2015, paste0(year, "ve.sas7bdat")))
+  accident <- read_sas(file.path(data_path_2000_2015, paste0(year, "accident.sas7bdat")))
+
+  # Injury processing
+  injury_temp <- oi %>%
+    mutate(
+      BACK = ifelse(BODYREG == "B", 1, 0),
+      NECK = ifelse(BODYREG == "N", 1, 0),
+      CONCUSSION = ifelse(LESION == "K", 1, 0),
+      AIS2 = ifelse(AIS >= 2 & AIS <= 6, 1, 0)
+    )
+
+  injury_summary <- injury_temp %>%
+    group_by(PSU, CASENO, VEHNO, OCCNO) %>%
+    summarise(
+      BACK = max(BACK, na.rm = TRUE),
+      NECK = max(NECK, na.rm = TRUE),
+      CONCUSSION = max(CONCUSSION, na.rm = TRUE),
+      AIS2 = max(AIS2, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  # Occupant data
+  occ <- injury_summary %>%
+    inner_join(oa, by = c("PSU", "CASENO", "VEHNO", "OCCNO")) %>%
+    mutate(
+      OI = 1,
+      BELTED = ifelse(MANUSE %in% c(0, 1), 0, ifelse(MANUSE == 4, 1, NA)),
+      AIRBAGS = ifelse(BAGDEPLY == 1, 1, 0)
+    ) %>%
+    filter(SEATPOS == 11 & AGE >= 16)
+
+  # Vehicle data
+  veh <- gv %>%
+    inner_join(ve, by = c("PSU", "CASENO", "VEHNO")) %>%
+    mutate(
+      KEEP = ifelse(DOF1 %in% c(5, 6, 7, 25, 26, 27, 45, 46, 47, 65, 66, 67, 85, 86, 87) &
+                    DOF2 %in% c(1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92), 1, 0),
+      DV_MPH = DVTOTAL * 0.621371
+    ) %>%
+    filter(KEEP == 1)
+
+  # Rear front temp
+  rear_front_temp <- occ %>%
+    inner_join(veh, by = c("PSU", "CASENO", "VEHNO"))
+
+  # Rear front final
+  rear_front <- rear_front_temp %>%
+    inner_join(accident, by = c("PSU", "CASENO")) %>%
+    filter(EVENTS == 2)
+
+  return(rear_front)
+}
+
+new_result <- process_year(2000)
+
+# Loop through years and process data
+years <- 2000:2015
+all_data <- lapply(years, process_year)
+rear_front_combined <- bind_rows(all_data)
+
+# Final adjustments
+rear_front_combined <- rear_front_combined %>%
+  mutate(
+    BACK = ifelse(BACK < 1, 0, BACK),
+    NECK = ifelse(NECK < 1, 0, NECK),
+    CONCUSSION = ifelse(CONCUSSION < 1, 0, CONCUSSION),
+    AIS2 = ifelse(AIS2 < 1, 0, AIS2),
+    OI = ifelse(OI < 1, 0, OI),
+    INJURED = ifelse(OI == 1 | MAIS > 0 | INJNUM > 0, 1, 0)
+  ) %>%
+  mutate(INJURED = ifelse(
+    (MAIS == 0 & INJNUM == 0) &
+      (TREATMNT %in% c(1, 2) | DEATH > 0 | INJSEV == 4 |
+       TREATMNT %in% c(3, 5, 6, 7, 8) | (TREATMNT == 4 & INJSEV > 0) |
+       MEDFACIL %in% c(1, 2, 3, 4, 5, 8)), 1, INJURED
+  ))
+
+# Survey design setup
+svydesign_data <- svydesign(
+  ids = ~PSU,
+  strata = ~PSUSTRAT,
+  weights = ~RATWGT,
+  data = rear_front_combined
+)
+
+# Analysis examples
+svymean(~DV_MPH, design = svydesign_data)
+svyby(~INJURED, ~YEAR, design = svydesign_data, svymean)
+
+# Logistic regression
+logistic_model <- svyglm(
+  BACK ~ DV_MPH + I(DV_MPH^2),
+  design = svydesign_data,
+  family = quasibinomial()
+)
+
+summary(logistic_model)
+```
+
