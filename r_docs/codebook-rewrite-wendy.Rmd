@@ -1,3 +1,8 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
 ```{r, setup}
 library(tidyverse)
 library(haven)
@@ -5,6 +10,227 @@ library(survey)
 knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 data_path_2000_2015 <- file.path("data", "NHTSA_databases", "NHTSA All files")
 ```
+
+
+```{r get MADYMO HIC values, eval=FALSE}
+# create dataframe with MADYMO data
+BELTUSE_BIN <- c(0, 1)
+BAGDEPLOY_BIN <- c(0, 1)
+SEATPOS <- c(11, 13)
+madymo_DVTOTAL <- 5:65
+
+MADYMO_df <- data.frame()
+MADYMO_df <- expand.grid(
+  BELTUSE_BIN = BELTUSE_BIN,
+  BAGDEPLOY_BIN = BAGDEPLOY_BIN,
+  SEATPOS = SEATPOS,
+  DVTOTAL = madymo_DVTOTAL
+)
+
+# write madymo dataframe (without HIC data) to .csv file for reference outside of this code
+# write.csv(MADYMO_df, file = file.path("data", "MADYMO_df.csv"))
+
+MADYMO_df <- MADYMO_df %>%
+  mutate(
+    file_path = file.path(
+      "data",
+      "minimal_simulations",
+      paste0(DVTOTAL, "_mph"),
+      ifelse(SEATPOS == 11, "driver", "pass"),
+      ifelse(BELTUSE_BIN == 0, "nobelt", "belt"),
+      ifelse(BAGDEPLOY_BIN == 0, "noairbag", "airbag"),
+      "madymo",
+      "madymo.peak"
+    )
+  )
+
+MADYMO_df <- MADYMO_df %>%
+  mutate(
+    MADYMO_HIC15 = NA,
+    T1_15 = NA,
+    T2_15 = NA,
+    MADYMO_HIC36 = NA,
+    T1_36 = NA,
+    T2_36 = NA,
+    MADYMO_PEAK_LACC = NA,
+    MADYMO_PEAK_AACC = NA
+  )
+
+
+# check if all files exist
+file_exist_errors <- list()
+for (i in MADYMO_df$file_path[1:nrow(MADYMO_df)]) {
+  if (!file.exists(file.path(i))) {
+    file_exist_errors[i] <- i}
+}
+
+# print error message
+if (length(file_exist_errors) != 0) {
+  cat("Files missing:", paste(file_exist_errors, "\n"))
+} else {
+  cat("No MADYMO files missing")
+}
+
+# Initialize a list to store file names that caused errors
+error_names <- c()
+
+# Loop through each file in the "file_path_name" column of MADYMO_df
+# Loop through each file in the "file_path" column of MADYMO_df
+for (i in 1:nrow(MADYMO_df)) {  # Process the first 5 files for testing
+  file_name <- MADYMO_df$file_path[i]
+  cat("Processing file:", file_name, "\n")
+  
+  # Use tryCatch to handle errors (like missing files)
+  result <- tryCatch({
+    # Step 1: Read the file into R
+    cat("Attempting to read file:", file_name, "\n")
+    lines <- readLines(file_name)
+    
+    print(paste("Loading", file_name))
+    
+    # Initialize empty variables to store the extracted values
+    MADYMO_HIC15 <- NA
+    T1_15 <- NA
+    T2_15 <- NA
+    MADYMO_HIC36 <- NA
+    T1_36 <- NA
+    T2_36 <- NA
+    MADYMO_PEAK_LACC <- NA
+    MADYMO_PEAK_AACC <- NA
+    
+    cat("Successfully read file:", file_name, "\n")
+    
+    # Function to extract the numeric values from the line
+    extract_hic_values <- function(line) {
+      # Extract VALUE
+      value <- as.numeric(gsub(".*VALUE[^0-9]*([0-9\\.]+).*", "\\1", line))
+      
+      # Extract T1
+      t1 <- as.numeric(gsub(".*T1\\s*=\\s*([0-9\\.]+).*", "\\1", line))
+      
+      # Extract T2
+      t2 <- as.numeric(gsub(".*T2\\s*=\\s*([0-9\\.]+).*", "\\1", line))
+      
+      return(list(value = value, t1 = t1, t2 = t2))
+    }
+    
+    # Function to extract the third number (maximum resultant acceleration) from the "Res. acceleration" line
+    extract_res_acceleration <- function(line) {
+      # Use regular expression to capture all numbers, including scientific notation
+      matches <- regmatches(line, gregexpr("[+-]?\\d*\\.?\\d+(E[+-]?\\d+)?", line))
+      
+      # Extract the third number from the matched results
+      if (length(matches[[1]]) >= 3) {
+        res_acc <- as.numeric(matches[[1]][4])  # The third number
+      } else {
+        res_acc <- NA
+      }
+      
+      return(res_acc)
+    }
+    
+    # Step 2: Loop through the lines to find relevant information
+    for (j in 1:(length(lines) - 2)) {
+      
+      # Check for HIC15_inj line
+      if (grepl("HIC15_inj", lines[j])) {
+        # Extract VALUE, T1, and T2 from the next-next line
+        value_line <- lines[j + 2]
+        
+        values_15 <- extract_hic_values(value_line)
+        MADYMO_HIC15 <- values_15$value
+        T1_15 <- values_15$t1
+        T2_15 <- values_15$t2
+      }
+      
+      # Check for HIC36_inj line
+      if (grepl("HIC36_inj", lines[j])) {
+        # Extract VALUE, T1, and T2 from the next-next line
+        value_line <- lines[j + 2]
+        
+        values_36 <- extract_hic_values(value_line)
+        MADYMO_HIC36 <- values_36$value
+        T1_36 <- values_36$t1
+        T2_36 <- values_36$t2
+      }
+      
+      # Check for the /HumanMale50%/HeadCG_acc identifier line
+      if (grepl("/HumanMale50%/HeadCG_acc", lines[j])) {
+        cat("Found /HumanMale50%/HeadCG_acc at line", j, "\n")
+        
+        # Look for the "Res. acceleration" line in the next few lines
+        for (k in (j+1):(j+5)) {  # We check the next 5 lines to find the "Res. acceleration" line
+          if (grepl("Res. acceleration", lines[k])) {
+            cat("Found Res. acceleration at line", k, "\n")
+            
+            # Extract the maximum resultant acceleration
+            MADYMO_PEAK_LACC <- extract_res_acceleration(lines[k])
+            cat("Extracted max resultant acceleration (m/s/s) (MADYMO_PEAK_LACC):", MADYMO_PEAK_LACC, "\n")
+            break
+          }
+        }
+      }
+      
+      # Check for the /HumanMale50%/Head_aac identifier line
+      if (grepl("/HumanMale50%/Head_aac", lines[j])) {
+        cat("Found /HumanMale50%/Head_aac at line", j, "\n")
+        
+        # Look for the "Res. ang. acc." line in the next few lines
+        for (k in (j+1):(j+5)) {  # We check the next 5 lines to find the "Res. ang. acc." line
+          if (grepl("Res. ang. acc.", lines[k])) {
+            cat("Found Res. ang. acc. at line", k, "\n")
+            
+            # Extract the maximum resultant acceleration
+            MADYMO_PEAK_AACC <- extract_res_acceleration(lines[k])
+            cat("Extracted max resultant acceleration (MADYMO_PEAK_AACC):", MADYMO_PEAK_AACC, "\n")
+            break
+          }
+        }
+      }
+    }
+    
+    # Step 3: Assign the extracted values to the corresponding row in MADYMO_df
+    MADYMO_df$MADYMO_HIC15[i] <- MADYMO_HIC15
+    MADYMO_df$T1_15[i] <- T1_15
+    MADYMO_df$T2_15[i] <- T2_15
+    MADYMO_df$MADYMO_HIC36[i] <- MADYMO_HIC36
+    MADYMO_df$T1_36[i] <- T1_36
+    MADYMO_df$T2_36[i] <- T2_36
+    MADYMO_df$MADYMO_PEAK_LACC[i] <- MADYMO_PEAK_LACC
+    MADYMO_df$MADYMO_PEAK_AACC[i] <- MADYMO_PEAK_AACC
+    
+    TRUE  # Indicate success
+  }, error = function(e) {
+    # Add the file name to error_names if there was an error
+    cat("Error in processing file:", file_name, "\n")
+    error_names <<- c(error_names, file_name)
+    FALSE  # Indicate failure
+  })
+  
+  # Log successful or failed processing
+  if (result) {
+    cat("File processed successfully:", file_name, "\n")
+  } else {
+    cat("Skipping file due to error:", file_name, "\n")
+  }
+}
+
+# convert LACC to g
+MADYMO_df$MADYMO_PEAK_LACC_g <- MADYMO_df$MADYMO_PEAK_LACC / 9.81
+
+# Print the list of files that caused errors
+if (length(error_names) > 0) {
+  cat(length(error_names), " Files with errors:", paste(error_names, collapse = ", "), "\n")
+} else {
+  cat("No errors occurred during processing.\n")
+}
+
+# fwrite madymo data frame
+fwrite(MADYMO_df, file = file.path("data", "MADYMO_df.csv"))
+
+
+```
+
 
 
 ```{r load and join oi and oa}
@@ -23,32 +249,46 @@ process_year <- function(year) {
   # Injury processing
   injury_temp <- oi %>%
     # if the column "BODYREG" doesn't exist, create and copy it from bodyreg column
-    mutate(BODYREG = ifelse("BODYREG" %in% c(colnames(oi)), BODYREG, bodyreg)) %>%
+    mutate(BODYREG = ifelse("bodyreg" %in% c(colnames(oi)), bodyreg, BODYREG)) %>%
     # if the column "LESION" doesn't exist, create and copy it from lesion column
     mutate(LESION = ifelse("LESION" %in% c(colnames(oi)), LESION, lesion)) %>%
     mutate(
       BACK = ifelse(BODYREG == "B", 1, 0),
       NECK = ifelse(BODYREG == "N", 1, 0),
       CONCUSSION = ifelse(LESION == "K", 1, 0),
-      AIS2 = ifelse(AIS >= 2 & AIS <= 6, 1, 0)
+      AIS1 = ifelse(AIS >= 1 & AIS <= 6, 1, 0)
     )
   
   print(paste("injury_temp row count:", nrow(injury_temp)))
   
-  injury_summary <- injury_temp %>%
-    group_by(PSU, CASENO, VEHNO, OCCNO) %>%
-    summarise(
-      BACK = max(BACK, na.rm = TRUE),
-      NECK = max(NECK, na.rm = TRUE),
-      CONCUSSION = max(CONCUSSION, na.rm = TRUE),
-      AIS2 = max(AIS2, na.rm = TRUE),
-      .groups = "drop"
-    )
+  # injury_summary <- injury_temp %>%
+  #   group_by(PSU, CASENO, VEHNO, OCCNO) %>%
+  #   summarise(
+  #     BACK = max(BACK, na.rm = TRUE),
+  #     NECK = max(NECK, na.rm = TRUE),
+  #     CONCUSSION = max(CONCUSSION, na.rm = TRUE),
+  #     AIS1 = max(AIS1, na.rm = TRUE),
+  #     .groups = "drop"
+  #   )
+  # 
+  # print(paste("injury_summary row count:", nrow(injury_summary)))
+
+  # Occupant data (changed injury_summary to injury_temp because of commented code)
   
-  print(paste("injury_summary row count:", nrow(injury_summary)))
   
-  # Occupant data
-  occ <- injury_summary %>%
+  
+  
+  
+  
+  # NEED TO FIND OUT WHY THIS MADE x5 PREVIOUS AMOUNT WITHOUT ABOVE CODE!
+  
+  
+  
+  
+  
+  
+  
+  occ <- injury_temp %>%
     inner_join(oa, by = c("PSU", "CASENO", "VEHNO", "OCCNO")) %>%
     mutate(
       OI = 1,
@@ -64,68 +304,116 @@ process_year <- function(year) {
   # NEED TO FIX CRASH DIRECTION FILTERING
   
   
+  
+  
+  
+  
+  
+  
+  
+  
+  
   # Vehicle data
   veh <- gv %>%
     inner_join(ve, by = c("PSU", "CASENO", "VEHNO")) %>%
     mutate(
       KEEP = ifelse(
-          DOF1 %in% c(
-            1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92
-          ), 1, 0),
+        DOF1 %in% c(
+          1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92
+        ), 1, 0),
       DV_MPH = DVTOTAL * 0.621371
     ) %>%
     filter(KEEP == 1)
   
   print(paste("veh row count:", nrow(veh)))
   
-  # Rear front temp
-  rear_front_temp <- occ %>%
+  # front temp
+  front_temp <- occ %>%
     inner_join(veh, by = c("PSU", "CASENO", "VEHNO"))
   
-  print(paste("rear_front_temp row count:", nrow(rear_front_temp)))
+  print(paste("front_temp row count:", nrow(front_temp)))
   
-  # Rear front final
-  rear_front <- rear_front_temp %>%
+  # front final
+  front <- front_temp %>%
     inner_join(accident, by = c("PSU", "CASENO")) %>%
     filter(EVENTS == 2)
   
-  print(paste("rear_front row count:", nrow(rear_front)))
+  print(paste("front row count:", nrow(front)))
   
-  return(rear_front)
+  return(front)
 }
-
-new_result <- process_year(2000)
-new_result <- process_year(2001)
 
 # Loop through years and process data
 years <- 2000:2015
 all_data <- lapply(years, process_year)
-rear_front_combined <- bind_rows(all_data)
+front_combined <- bind_rows(all_data)
 
-print(paste("rear_front_combined (before filter):", nrow(rear_front_combined)))
+print(paste("front_combined (before filter):", nrow(front_combined)))
 
 # Final adjustments
-rear_front_combined <- rear_front_combined %>%
+nhtsa_combined_df <- front_combined %>%
   mutate(
     BACK = ifelse(BACK < 1, 0, BACK),
     NECK = ifelse(NECK < 1, 0, NECK),
     CONCUSSION = ifelse(CONCUSSION < 1, 0, CONCUSSION),
-    AIS2 = ifelse(AIS2 < 1, 0, AIS2),
+    AIS1 = ifelse(AIS1 < 1, 0, AIS1),
     OI = ifelse(OI < 1, 0, OI),
     INJURED = ifelse(OI == 1 | MAIS > 0 | INJNUM > 0, 1, 0)
   ) %>%
   mutate(INJURED = ifelse(
     (MAIS == 0 & INJNUM == 0) &
-      (TREATMNT %in% c(1, 2) | DEATH > 0 | INJSEV == 4 |
-         TREATMNT %in% c(3, 5, 6, 7, 8) | (TREATMNT == 4 & INJSEV > 0) |
+      (TREATMNT %in% c(1, 2) | 
+         DEATH > 0 | 
+         INJSEV == 4 |
+         TREATMNT %in% c(3, 5, 6, 7, 8) | 
+         (TREATMNT == 4 & INJSEV > 0) |
          MEDFACIL %in% c(1, 2, 3, 4, 5, 8)), 1, INJURED
-  ))
+  )
+  )
 
-print(paste("rear_front_combined (after filter):", nrow(rear_front_combined)))
+# make appropriate variables into factors
+sort(colnames(nhtsa_combined_df))
+cols_factor <- c( "BAGDEPLY", "CONCUSSION", "INJURED", "MANUSE", "OBJCONT1", "OBJCONT2", "OCCNO", "OI", "PSU", "ROLLOVER", "SEATPOS", "SEX", "VEHNO", "VEHTYPE", "YEAR")
+nhtsa_combined_df[cols_factor] <- lapply(nhtsa_combined_df[cols_factor], factor)
 
+cols_explore <- c(cols_factor, "AGE", "DV_MPH", "DVTOTAL", "HEIGHT",  "WEIGHT")
+
+explore_df <- subset(nhtsa_combined_df, select = cols_explore)
+
+# explore data
+summary(explore_df)
+
+# exclude NA values for some variables
+# nhtsa_combined_df <- nhtsa_combined_df %>%
+#   subset(
+#     
+#   )
+
+print(paste("front_combined (after filter):", nrow(front_combined)))
+
+# make binary forms of seatbelt and airbag vars
+nhtsa_combined_df <- nhtsa_combined_df %>%
+  mutate(
+    BELTUSE_BIN = ifelse(
+      MANUSE == 4, 1, 0
+    ),
+    BAGDEPLOY_BIN = ifelse(
+      BAGDEPLY == 1, 1, 0
+    )
+  )
+
+# make all relevant variables correct datatypes
+```
+
+```{r join MADYMO data to NHTSA dataframe}
+madymo_nhtsa_df <- front_combined %>%
+  left_join(MADYMO_df, by = join_by(DVTOTAL == DVTOTAL, SEATPOS == SEATLOC, BELTUSE_BIN == BELTUSE_BIN, BAGDEPLOY_BIN == BAGDEPLOY_BIN))
+```
+
+```{r logistic models}
 # not finished at all
 
-logistic_model <- glm(INJURED ~ DV_MPH, family = "binomial", data = rear_front_combined)
+logistic_model <- glm(INJURED ~ DV_MPH, family = "binomial", data = front_combined)
 
 summary(logistic_model)
 ```
