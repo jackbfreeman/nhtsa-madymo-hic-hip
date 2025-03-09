@@ -21,11 +21,15 @@ madymo_DVTOTAL <- 5:65
 
 MADYMO_df <- data.frame()
 MADYMO_df <- expand.grid(
-  BELTUSE_BIN = BELTUSE_BIN,
-  BAGDEPLOY_BIN = BAGDEPLOY_BIN,
-  SEATPOS = SEATPOS,
+  as.factor(BELTUSE_BIN) = BELTUSE_BIN,
+  as.factor(BAGDEPLOY_BIN) = BAGDEPLOY_BIN,
+  as.factor(SEATPOS) = SEATPOS,
   DVTOTAL = madymo_DVTOTAL
 )
+
+MADYMO_df$BELTUSE_BIN <- as.factor(MADYMO_df$BELTUSE_BIN)
+MADYMO_df$BAGDEPLOY_BIN <- as.factor(MADYMO_df$BAGDEPLOY_BIN)
+MADYMO_df$SEATPOS <- as.factor(MADYMO_df$SEATPOS)
 
 # write madymo dataframe (without HIC data) to .csv file for reference outside of this code
 # write.csv(MADYMO_df, file = file.path("data", "MADYMO_df.csv"))
@@ -238,10 +242,15 @@ fwrite(MADYMO_df, file = file.path("data", "MADYMO_df.csv"))
 
 process_year <- function(year) {
   # Load datasets (replace paths as necessary)
+  # occupant injury
   oi <- read_sas(file.path(data_path_2000_2015, paste0(year, "oi.sas7bdat")))
+  # occupant 
   oa <- read_sas(file.path(data_path_2000_2015, paste0(year, "oa.sas7bdat")))
+  # general vehicle
   gv <- read_sas(file.path(data_path_2000_2015, paste0(year, "gv.sas7bdat")))
+  # vehicle event
   ve <- read_sas(file.path(data_path_2000_2015, paste0(year, "ve.sas7bdat")))
+  # accident
   accident <- read_sas(file.path(data_path_2000_2015, paste0(year, "accident.sas7bdat")))
   
   print(paste("Year:", year))
@@ -261,18 +270,28 @@ process_year <- function(year) {
   
   print(paste("injury_temp row count:", nrow(injury_temp)))
   
-  # injury_summary <- injury_temp %>%
-  #   group_by(PSU, CASENO, VEHNO, OCCNO) %>%
-  #   summarise(
-  #     BACK = max(BACK, na.rm = TRUE),
-  #     NECK = max(NECK, na.rm = TRUE),
-  #     CONCUSSION = max(CONCUSSION, na.rm = TRUE),
-  #     AIS1 = max(AIS1, na.rm = TRUE),
-  #     .groups = "drop"
-  #   )
-  # 
-  # print(paste("injury_summary row count:", nrow(injury_summary)))
-
+  
+  
+  
+  
+  
+  
+  
+  # collect multiple entries per individual into one individual per entry, then take maximum values for BACK, NECK, CONCUSSION, and AIS1 columns in case one grouped entry is 0 and another is 1
+  
+  injury_summary <- injury_temp %>%
+    group_by(PSU, CASENO, VEHNO, OCCNO) %>%
+    summarise(
+      BACK = max(BACK, na.rm = TRUE),
+      NECK = max(NECK, na.rm = TRUE),
+      CONCUSSION = max(CONCUSSION, na.rm = TRUE),
+      AIS1 = max(AIS1, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(across(everything(), ~ ifelse(is.infinite(.), NA, .)))
+  
+  print(paste("injury_summary row count:", nrow(injury_summary)))
+  
   # Occupant data (changed injury_summary to injury_temp because of commented code)
   
   
@@ -288,23 +307,20 @@ process_year <- function(year) {
   
   
   
-  occ <- injury_temp %>%
-    inner_join(oa, by = c("PSU", "CASENO", "VEHNO", "OCCNO")) %>%
+  occ <- injury_summary %>%
+    right_join(oa, by = c("PSU", "CASENO", "VEHNO", "OCCNO")) %>%
     mutate(
       OI = 1,
-      BELTED = ifelse(MANUSE %in% c(0, 1), 0, ifelse(MANUSE == 4, 1, NA)),
-      AIRBAGS = ifelse(BAGDEPLY == 1, 1, 0)
+      BELTUSE_BIN = ifelse(MANUSE %in% c(0, 1), 0, ifelse(MANUSE == 4, 1, NA)),
+      BAGDEPLOY_BIN = ifelse(BAGDEPLY == 1, 1, 0)
     ) %>%
-    filter(SEATPOS == 11 & AGE >= 16)
+    filter(SEATPOS %in% c(11, 13))
   
   print(paste("occ row count:", nrow(occ)))
   
   
   
   # NEED TO FIX CRASH DIRECTION FILTERING
-  
-  
-  
   
   
   
@@ -344,7 +360,8 @@ process_year <- function(year) {
 }
 
 # Loop through years and process data
-years <- 2000:2015
+# years <- 2000:2015
+years <- 2000
 all_data <- lapply(years, process_year)
 front_combined <- bind_rows(all_data)
 
@@ -371,9 +388,12 @@ nhtsa_combined_df <- front_combined %>%
   )
   )
 
+nhtsa_combined_df <- nhtsa_combined_df %>% 
+  select(order(colnames(nhtsa_combined_df)))
+
 # make appropriate variables into factors
 sort(colnames(nhtsa_combined_df))
-cols_factor <- c( "BAGDEPLY", "CONCUSSION", "INJURED", "MANUSE", "OBJCONT1", "OBJCONT2", "OCCNO", "OI", "PSU", "ROLLOVER", "SEATPOS", "SEX", "VEHNO", "VEHTYPE", "YEAR")
+cols_factor <- c("BAGDEPLY", "BAGDEPLOY_BIN", "BELTUSE_BIN", "CONCUSSION", "DVEST", "INJURED", "MANUSE", "OBJCONT1", "OBJCONT2", "OCCNO", "OI", "PSU", "ROLLOVER", "SEATPOS", "SEX", "VEHNO", "VEHTYPE", "YEAR")
 nhtsa_combined_df[cols_factor] <- lapply(nhtsa_combined_df[cols_factor], factor)
 
 cols_explore <- c(cols_factor, "AGE", "DV_MPH", "DVTOTAL", "HEIGHT",  "WEIGHT")
@@ -389,31 +409,25 @@ summary(explore_df)
 #     
 #   )
 
-print(paste("front_combined (after filter):", nrow(front_combined)))
-
-# make binary forms of seatbelt and airbag vars
-nhtsa_combined_df <- nhtsa_combined_df %>%
-  mutate(
-    BELTUSE_BIN = ifelse(
-      MANUSE == 4, 1, 0
-    ),
-    BAGDEPLOY_BIN = ifelse(
-      BAGDEPLY == 1, 1, 0
-    )
-  )
+print(paste("front_combined (after filter):", nrow(nhtsa_combined_df)))
 
 # make all relevant variables correct datatypes
 ```
 
 ```{r join MADYMO data to NHTSA dataframe}
-madymo_nhtsa_df <- front_combined %>%
-  left_join(MADYMO_df, by = join_by(DVTOTAL == DVTOTAL, SEATPOS == SEATLOC, BELTUSE_BIN == BELTUSE_BIN, BAGDEPLOY_BIN == BAGDEPLOY_BIN))
+madymo_nhtsa_df <- nhtsa_combined_df %>%
+  left_join(MADYMO_df, by = join_by(DV_MPH == DVTOTAL, SEATPOS == SEATPOS, BELTUSE_BIN == BELTUSE_BIN, BAGDEPLOY_BIN == BAGDEPLOY_BIN))
 ```
+
+```{r cross tabulation for outcome and predictors}
+xtabs(INJURED ~ DV_MPH)
+```
+
 
 ```{r logistic models}
 # not finished at all
 
-logistic_model <- glm(INJURED ~ DV_MPH, family = "binomial", data = front_combined)
+logistic_model <- glm(INJURED ~ DV_MPH, family = "binomial", data = nhtsa_combined_df)
 
 summary(logistic_model)
 ```
