@@ -239,7 +239,7 @@ fwrite(MADYMO_df, file = file.path("data", "MADYMO_df.csv"))
 
 ```{r load and join oi and oa}
 # Helper function to process data for each year
-
+ 
 process_year <- function(year) {
   # Load datasets (replace paths as necessary)
   # occupant injury
