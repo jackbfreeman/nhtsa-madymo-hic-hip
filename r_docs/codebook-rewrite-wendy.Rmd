@@ -1,67 +1,324 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
 ```{r, setup}
 library(tidyverse)
 library(haven)
 library(survey)
+library(broom)
+library(ggplot2)
+library(purrr)
 knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 data_path_2000_2015 <- file.path("data", "NHTSA_databases", "NHTSA All files")
 ```
 
 
-```{r load and join oi and oa}
+```{r get MADYMO HIC values and build MADYMO dataframe, eval=FALSE}
+# create dataframe with MADYMO data
+BELTUSE_BIN <- c(0, 1)
+BAGDEPLOY_BIN <- c(0, 1)
+SEATPOS <- c(11, 13)
+madymo_DVTOTAL <- 5:65
+
+MADYMO_df <- data.frame()
+MADYMO_df <- expand.grid(
+  BELTUSE_BIN = BELTUSE_BIN,
+  BAGDEPLOY_BIN = BAGDEPLOY_BIN,
+  SEATPOS = SEATPOS,
+  DVTOTAL = madymo_DVTOTAL
+)
+
+MADYMO_df$BELTUSE_BIN <- as.factor(MADYMO_df$BELTUSE_BIN)
+MADYMO_df$BAGDEPLOY_BIN <- as.factor(MADYMO_df$BAGDEPLOY_BIN)
+MADYMO_df$SEATPOS <- as.factor(MADYMO_df$SEATPOS)
+
+# write madymo dataframe (without HIC data) to .csv file for reference outside of this code
+# write.csv(MADYMO_df, file = file.path("data", "MADYMO_df.csv"))
+
+MADYMO_df <- MADYMO_df %>%
+  mutate(
+    file_path = file.path(
+      "data",
+      "minimal_simulations",
+      paste0(DVTOTAL, "_mph"),
+      ifelse(SEATPOS == 11, "driver", "pass"),
+      ifelse(BELTUSE_BIN == 0, "nobelt", "belt"),
+      ifelse(BAGDEPLOY_BIN == 0, "noairbag", "airbag"),
+      "madymo",
+      "madymo.peak"
+    )
+  )
+
+MADYMO_df <- MADYMO_df %>%
+  mutate(
+    MADYMO_HIC15 = NA,
+    T1_15 = NA,
+    T2_15 = NA,
+    MADYMO_HIC36 = NA,
+    T1_36 = NA,
+    T2_36 = NA,
+    MADYMO_PEAK_LACC = NA,
+    MADYMO_PEAK_AACC = NA
+  )
+
+
+# check if all files exist
+file_exist_errors <- list()
+for (i in MADYMO_df$file_path[1:nrow(MADYMO_df)]) {
+  if (!file.exists(file.path(i))) {
+    file_exist_errors[i] <- i}
+}
+
+# print error message
+if (length(file_exist_errors) != 0) {
+  cat("Files missing:", paste(file_exist_errors, "\n"))
+} else {
+  cat("No MADYMO files missing")
+}
+
+# Initialize a list to store file names that caused errors
+error_names <- c()
+
+# Loop through each file in the "file_path_name" column of MADYMO_df
+# Loop through each file in the "file_path" column of MADYMO_df
+for (i in 1:nrow(MADYMO_df)) {  # Process the first 5 files for testing
+  file_name <- MADYMO_df$file_path[i]
+  cat("Processing file:", file_name, "\n")
+  
+  # Use tryCatch to handle errors (like missing files)
+  result <- tryCatch({
+    # Step 1: Read the file into R
+    cat("Attempting to read file:", file_name, "\n")
+    lines <- readLines(file_name)
+    
+    print(paste("Loading", file_name))
+    
+    # Initialize empty variables to store the extracted values
+    MADYMO_HIC15 <- NA
+    T1_15 <- NA
+    T2_15 <- NA
+    MADYMO_HIC36 <- NA
+    T1_36 <- NA
+    T2_36 <- NA
+    MADYMO_PEAK_LACC <- NA
+    MADYMO_PEAK_AACC <- NA
+    
+    cat("Successfully read file:", file_name, "\n")
+    
+    # Function to extract the numeric values from the line
+    extract_hic_values <- function(line) {
+      # Extract VALUE
+      value <- as.numeric(gsub(".*VALUE[^0-9]*([0-9\\.]+).*", "\\1", line))
+      
+      # Extract T1
+      t1 <- as.numeric(gsub(".*T1\\s*=\\s*([0-9\\.]+).*", "\\1", line))
+      
+      # Extract T2
+      t2 <- as.numeric(gsub(".*T2\\s*=\\s*([0-9\\.]+).*", "\\1", line))
+      
+      return(list(value = value, t1 = t1, t2 = t2))
+    }
+    
+    # Function to extract the third number (maximum resultant acceleration) from the "Res. acceleration" line
+    extract_res_acceleration <- function(line) {
+      # Use regular expression to capture all numbers, including scientific notation
+      matches <- regmatches(line, gregexpr("[+-]?\\d*\\.?\\d+(E[+-]?\\d+)?", line))
+      
+      # Extract the third number from the matched results
+      if (length(matches[[1]]) >= 3) {
+        res_acc <- as.numeric(matches[[1]][4])  # The third number
+      } else {
+        res_acc <- NA
+      }
+      
+      return(res_acc)
+    }
+    
+    # Step 2: Loop through the lines to find relevant information
+    for (j in 1:(length(lines) - 2)) {
+      
+      # Check for HIC15_inj line
+      if (grepl("HIC15_inj", lines[j])) {
+        # Extract VALUE, T1, and T2 from the next-next line
+        value_line <- lines[j + 2]
+        
+        values_15 <- extract_hic_values(value_line)
+        MADYMO_HIC15 <- values_15$value
+        T1_15 <- values_15$t1
+        T2_15 <- values_15$t2
+      }
+      
+      # Check for HIC36_inj line
+      if (grepl("HIC36_inj", lines[j])) {
+        # Extract VALUE, T1, and T2 from the next-next line
+        value_line <- lines[j + 2]
+        
+        values_36 <- extract_hic_values(value_line)
+        MADYMO_HIC36 <- values_36$value
+        T1_36 <- values_36$t1
+        T2_36 <- values_36$t2
+      }
+      
+      # Check for the /HumanMale50%/HeadCG_acc identifier line
+      if (grepl("/HumanMale50%/HeadCG_acc", lines[j])) {
+        cat("Found /HumanMale50%/HeadCG_acc at line", j, "\n")
+        
+        # Look for the "Res. acceleration" line in the next few lines
+        for (k in (j+1):(j+5)) {  # We check the next 5 lines to find the "Res. acceleration" line
+          if (grepl("Res. acceleration", lines[k])) {
+            cat("Found Res. acceleration at line", k, "\n")
+            
+            # Extract the maximum resultant acceleration
+            MADYMO_PEAK_LACC <- extract_res_acceleration(lines[k])
+            cat("Extracted max resultant acceleration (m/s/s) (MADYMO_PEAK_LACC):", MADYMO_PEAK_LACC, "\n")
+            break
+          }
+        }
+      }
+      
+      # Check for the /HumanMale50%/Head_aac identifier line
+      if (grepl("/HumanMale50%/Head_aac", lines[j])) {
+        cat("Found /HumanMale50%/Head_aac at line", j, "\n")
+        
+        # Look for the "Res. ang. acc." line in the next few lines
+        for (k in (j+1):(j+5)) {  # We check the next 5 lines to find the "Res. ang. acc." line
+          if (grepl("Res. ang. acc.", lines[k])) {
+            cat("Found Res. ang. acc. at line", k, "\n")
+            
+            # Extract the maximum resultant acceleration
+            MADYMO_PEAK_AACC <- extract_res_acceleration(lines[k])
+            cat("Extracted max resultant acceleration (MADYMO_PEAK_AACC):", MADYMO_PEAK_AACC, "\n")
+            break
+          }
+        }
+      }
+    }
+    
+    # Step 3: Assign the extracted values to the corresponding row in MADYMO_df
+    MADYMO_df$MADYMO_HIC15[i] <- MADYMO_HIC15
+    MADYMO_df$T1_15[i] <- T1_15
+    MADYMO_df$T2_15[i] <- T2_15
+    MADYMO_df$MADYMO_HIC36[i] <- MADYMO_HIC36
+    MADYMO_df$T1_36[i] <- T1_36
+    MADYMO_df$T2_36[i] <- T2_36
+    MADYMO_df$MADYMO_PEAK_LACC[i] <- MADYMO_PEAK_LACC
+    MADYMO_df$MADYMO_PEAK_AACC[i] <- MADYMO_PEAK_AACC
+    
+    TRUE  # Indicate success
+  }, error = function(e) {
+    # Add the file name to error_names if there was an error
+    cat("Error in processing file:", file_name, "\n")
+    error_names <<- c(error_names, file_name)
+    FALSE  # Indicate failure
+  })
+  
+  # Log successful or failed processing
+  if (result) {
+    cat("File processed successfully:", file_name, "\n")
+  } else {
+    cat("Skipping file due to error:", file_name, "\n")
+  }
+}
+
+# convert LACC to g
+MADYMO_df$MADYMO_PEAK_LACC_g <- MADYMO_df$MADYMO_PEAK_LACC / 9.81
+
+# Print the list of files that caused errors
+if (length(error_names) > 0) {
+  cat(length(error_names), " Files with errors:", paste(error_names, collapse = ", "), "\n")
+} else {
+  cat("No errors occurred during processing.\n")
+}
+
+# fwrite madymo data frame
+# fwrite(MADYMO_df, file = file.path("data", "MADYMO_df.csv"))
+
+
+```
+
+
+
+```{r build nhtsa dataframe}
 # Helper function to process data for each year
+vehicle_count <- 0
+individual_count <- 0
 
 process_year <- function(year) {
   # Load datasets (replace paths as necessary)
+  # occupant injury
   oi <- read_sas(file.path(data_path_2000_2015, paste0(year, "oi.sas7bdat")))
+  # occupant 
   oa <- read_sas(file.path(data_path_2000_2015, paste0(year, "oa.sas7bdat")))
+  # general vehicle
   gv <- read_sas(file.path(data_path_2000_2015, paste0(year, "gv.sas7bdat")))
+  # vehicle event
   ve <- read_sas(file.path(data_path_2000_2015, paste0(year, "ve.sas7bdat")))
+  # accident
   accident <- read_sas(file.path(data_path_2000_2015, paste0(year, "accident.sas7bdat")))
   
   print(paste("Year:", year))
   
+  
   # Injury processing
   injury_temp <- oi %>%
-    # if the column "BODYREG" doesn't exist, create and copy it from bodyreg column
-    mutate(BODYREG = ifelse("BODYREG" %in% c(colnames(oi)), BODYREG, bodyreg)) %>%
-    # if the column "LESION" doesn't exist, create and copy it from lesion column
-    mutate(LESION = ifelse("LESION" %in% c(colnames(oi)), LESION, lesion)) %>%
+    mutate(
+      # Handle column name inconsistencies
+      BODYREG = if ("BODYREG" %in% names(.)) BODYREG else bodyreg,
+      LESION = if ("LESION" %in% names(.)) LESION else lesion
+    ) %>%
     mutate(
       BACK = ifelse(BODYREG == "B", 1, 0),
       NECK = ifelse(BODYREG == "N", 1, 0),
       CONCUSSION = ifelse(LESION == "K", 1, 0),
-      AIS2 = ifelse(AIS >= 2 & AIS <= 6, 1, 0)
+      AIS1 = ifelse(AIS >= 1 & AIS <= 6, 1, 0)
     )
   
-  print(paste("injury_temp row count:", nrow(injury_temp)))
+  print(paste("all injuries count:", nrow(injury_temp)))
   
+  # Summarize injuries (1 row per occupant)
   injury_summary <- injury_temp %>%
     group_by(PSU, CASENO, VEHNO, OCCNO) %>%
     summarise(
       BACK = max(BACK, na.rm = TRUE),
       NECK = max(NECK, na.rm = TRUE),
       CONCUSSION = max(CONCUSSION, na.rm = TRUE),
-      AIS2 = max(AIS2, na.rm = TRUE),
+      AIS1 = max(AIS1, na.rm = TRUE),
       .groups = "drop"
-    )
-  
-  print(paste("injury_summary row count:", nrow(injury_summary)))
-  
-  # Occupant data
-  occ <- injury_summary %>%
-    inner_join(oa, by = c("PSU", "CASENO", "VEHNO", "OCCNO")) %>%
-    mutate(
-      OI = 1,
-      BELTED = ifelse(MANUSE %in% c(0, 1), 0, ifelse(MANUSE == 4, 1, NA)),
-      AIRBAGS = ifelse(BAGDEPLY == 1, 1, 0)
     ) %>%
-    filter(SEATPOS == 11 & AGE >= 16)
+    # Replace -Inf with NA (from max(na.rm=TRUE when all values are NA)
+    mutate(across(everything(), ~ ifelse(is.infinite(.), NA, .)))
   
-  print(paste("occ row count:", nrow(occ)))
+  print(paste("all injured individuals count:", nrow(injury_summary)))
+  
+  # Start with occupant data (oa) and LEFT JOIN injuries
+  
+  occ <- oa %>%
+    # Merge injury data (retain all occupants, even if uninjured)
+    left_join(injury_summary, by = c("PSU", "CASENO", "VEHNO", "OCCNO")) %>%
+    # Replace NA with 0 for injury columns (uninjured occupants)
+    mutate(
+      across(c(BACK, NECK, CONCUSSION, AIS1), ~ replace_na(., 0)),
+      OI = ifelse(BACK == 1 | NECK == 1 | CONCUSSION == 1 | AIS1 == 1, 1, 0),
+      BELTUSE_BIN = ifelse(MANUSE %in% c(0, 1), 0, ifelse(MANUSE == 4, 1, NA)),
+      BAGDEPLOY_BIN = ifelse(BAGDEPLY == 1, 1, 0),
+      BMI = WEIGHT / ((HEIGHT / 100) ^ 2),
+      BMI_HIGH = ifelse(BMI >= 30, 1, 0)
+    ) %>%
+    filter(SEATPOS %in% c(11, 13))  # Front-left and front-right seats
   
   
+  # count all vehicles involved in all crashes in all years
+  oa_grouped <- oa %>%
+    group_by(PSU, CASENO, OCCNO)
+  individual_count <<- individual_count + nrow(oa_grouped)
   
   # NEED TO FIX CRASH DIRECTION FILTERING
+  
+  
+  print(paste("injured + uninjured count:", nrow(occ)))
+  
   
   
   # Vehicle data
@@ -69,64 +326,522 @@ process_year <- function(year) {
     inner_join(ve, by = c("PSU", "CASENO", "VEHNO")) %>%
     mutate(
       KEEP = ifelse(
-          DOF1 %in% c(
-            1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92
-          ), 1, 0),
-      DV_MPH = DVTOTAL * 0.621371
+        DOF1 %in% c(
+          1, 11, 12, 21, 31, 
+          32, 41, 51, 52, 61, 
+          71, 72, 81, 91, 92
+        ), 1, 0),
+      DV_MPH = round(DVTOTAL * 0.621371)
     ) %>%
     filter(KEEP == 1)
   
-  print(paste("veh row count:", nrow(veh)))
+  # count all vehicles involved in all crashes in all years
+  vehicle_count <<- vehicle_count + nrow(gv)
   
-  # Rear front temp
-  rear_front_temp <- occ %>%
+  
+  print(paste("gv + veh count:", nrow(veh)))
+  
+  # front temp
+  front_temp <- occ %>%
     inner_join(veh, by = c("PSU", "CASENO", "VEHNO"))
   
-  print(paste("rear_front_temp row count:", nrow(rear_front_temp)))
+  print(paste("veh + occ count:", nrow(front_temp)))
   
-  # Rear front final
-  rear_front <- rear_front_temp %>%
-    inner_join(accident, by = c("PSU", "CASENO")) %>%
-    filter(EVENTS == 2)
+  # front final
+  front <- front_temp %>%
+    # filter(EVENTS == 2) %>%
+    inner_join(accident, by = c("PSU", "CASENO"))
   
-  print(paste("rear_front row count:", nrow(rear_front)))
+  print(paste("accident + front count:", nrow(front)))
   
-  return(rear_front)
+  return(front)
 }
-
-new_result <- process_year(2000)
-new_result <- process_year(2001)
 
 # Loop through years and process data
 years <- 2000:2015
+# years <- 2000
 all_data <- lapply(years, process_year)
-rear_front_combined <- bind_rows(all_data)
+front_combined <- bind_rows(all_data)
 
-print(paste("rear_front_combined (before filter):", nrow(rear_front_combined)))
+
 
 # Final adjustments
-rear_front_combined <- rear_front_combined %>%
+nhtsa_combined_df <- front_combined %>%
   mutate(
     BACK = ifelse(BACK < 1, 0, BACK),
     NECK = ifelse(NECK < 1, 0, NECK),
     CONCUSSION = ifelse(CONCUSSION < 1, 0, CONCUSSION),
-    AIS2 = ifelse(AIS2 < 1, 0, AIS2),
+    AIS1 = ifelse(AIS1 < 1, 0, AIS1),
     OI = ifelse(OI < 1, 0, OI),
-    INJURED = ifelse(OI == 1 | MAIS > 0 | INJNUM > 0, 1, 0)
+    # need to make sure this is catching the right group
+    INJURED = ifelse(OI == 1 | MAIS > 0 | INJNUM > 0, 1, 0),
+    SEX_BIN = ifelse(SEX == 1, 0, 1)
   ) %>%
   mutate(INJURED = ifelse(
     (MAIS == 0 & INJNUM == 0) &
-      (TREATMNT %in% c(1, 2) | DEATH > 0 | INJSEV == 4 |
-         TREATMNT %in% c(3, 5, 6, 7, 8) | (TREATMNT == 4 & INJSEV > 0) |
+      (TREATMNT %in% c(1, 2) | 
+         DEATH > 0 | 
+         INJSEV == 4 |
+         TREATMNT %in% c(3, 5, 6, 7, 8) | 
+         (TREATMNT == 4 & INJSEV > 0) |
          MEDFACIL %in% c(1, 2, 3, 4, 5, 8)), 1, INJURED
-  ))
+  )
+  ) %>%
+  filter(
+    DV_MPH >= 5 & DV_MPH <= 65,
+    !is.na(BELTUSE_BIN),
+    !is.na(BAGDEPLOY_BIN),
+    !is.na(INJURED)
+  )
 
-print(paste("rear_front_combined (after filter):", nrow(rear_front_combined)))
+print(paste("all entries all years (before filter):", nrow(nhtsa_combined_df)))
 
-# not finished at all
 
-logistic_model <- glm(INJURED ~ DV_MPH, family = "binomial", data = rear_front_combined)
+nhtsa_combined_df <- nhtsa_combined_df %>% 
+  select(order(colnames(nhtsa_combined_df)))
 
-summary(logistic_model)
+# make appropriate variables into factors
+# sort(colnames(nhtsa_combined_df))
+cols_factor <- c("BAGDEPLY", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI_HIGH", "CONCUSSION", "DVEST", "INJURED", "MANUSE", "OBJCONT1", "OBJCONT2", "OCCNO", "OI", "PSU", "ROLLOVER", "SEATPOS", "SEX", "VEHNO", "VEHTYPE", "YEAR")
+nhtsa_combined_df[cols_factor] <- lapply(nhtsa_combined_df[cols_factor], factor)
+
+cols_explore <- c(cols_factor, "AGE", "BMI", "DV_MPH", "DVTOTAL", "HEIGHT",  "WEIGHT")
+
+explore_df <- subset(nhtsa_combined_df, select = cols_explore)
+
+# explore data
+summary(explore_df)
+
 ```
+
+```{r examine missingness and extreme values}
+# examine missingness
+missing_values <- nhtsa_combined_df %>%
+  summarise_all(~ sum(is.na(.))) %>%
+  gather(variable, missing) %>%
+  filter(missing > 0) %>%
+  arrange(desc(missing))
+
+print(missing_values)
+
+# examine extreme values
+# DO THIS LATER
+# look at Belt and 10-25 kmh groups
+```
+
+```{r filter and join MADYMO data}
+# exclude NA values for some variables
+# nhtsa_combined_df <- nhtsa_combined_df %>%
+#   subset(
+#     
+#   )
+
+# columns that will be kept in final dataset
+cols_final <- c(cols_explore, "PSU", "CASENO", "VEHNO", "OCCNO", "INJNUM", "MAIS", "INJSEV", "TREATMNT", "MEDFACIL", "EVENTS", "BACK", "NECK", "CONCUSSION", "AIS1")
+
+# select only relevant columns
+nhtsa_combined_df <- nhtsa_combined_df %>%
+  select(
+    all_of(cols_final))
+
+print(paste("all years (after filter):", nrow(nhtsa_combined_df)))
+
+# make all relevant variables correct datatypes
+
+# join MADYMO data to NHTSA dataframe
+madymo_nhtsa_df <- nhtsa_combined_df %>%
+  left_join(MADYMO_df, by = join_by(DV_MPH == DVTOTAL, SEATPOS == SEATPOS, BELTUSE_BIN == BELTUSE_BIN, BAGDEPLOY_BIN == BAGDEPLOY_BIN))
+
+# transform MADYMO_HIC15 to see if numbers are more legible
+madymo_nhtsa_df$MADYMO_HIC15_transformed <- madymo_nhtsa_df$MADYMO_HIC15/1000
+
+
+# create dataframes for different subgroups
+subgroups_df <- list(
+  drivers_df = madymo_nhtsa_df %>%
+    filter(SEATPOS == 11),
+  
+  passengers_df = madymo_nhtsa_df %>%
+    filter(SEATPOS == 13),
+  
+  airbag_df = madymo_nhtsa_df %>%
+    filter(BAGDEPLOY_BIN == 1),
+  
+  no_airbag_df = madymo_nhtsa_df %>%
+    filter(BAGDEPLOY_BIN == 0),
+  
+  belt_df = madymo_nhtsa_df %>%
+    filter(BELTUSE_BIN == 1),
+  
+  no_belt_df = madymo_nhtsa_df %>%
+    filter(BELTUSE_BIN == 0),
+  
+  ten_twentyfive_df = madymo_nhtsa_df %>%
+    filter(DVTOTAL >= 10 & DVTOTAL <= 25),
+  
+  twentyfive_forty_df = madymo_nhtsa_df %>%
+    filter(DVTOTAL >= 25 & DVTOTAL <= 40),
+  
+  forty_fiftyfive_df = madymo_nhtsa_df %>%
+    filter(DVTOTAL >= 40 & DVTOTAL <= 55),
+  
+  fiftyfive_df = madymo_nhtsa_df %>%
+    filter(DVTOTAL >= 55)
+)
+
+
+
+# examine frequency of DV_MPH values for all crashes with histogram
+ggplot(madymo_nhtsa_df, aes(x = DV_MPH)) +
+  geom_histogram(binwidth = 2.5) +
+  labs(title = "Distribution of Crash Speeds (All)", x = "Crash Speed (mph)", y = "Frequency") +
+  # x axis every 5 mph
+  scale_x_continuous(breaks = seq(0, 65, by = 5))
+
+# examine frequency of head injury values by speed for all crashes with histogram
+ggplot(madymo_nhtsa_df, aes(x = DV_MPH, fill = INJURED)) +
+  geom_histogram(binwidth = 5, position = "dodge") +
+  labs(title = "Distribution of Crash Speeds by Injury Status (All)", x = "Crash Speed (mph)", y = "Frequency") +
+  scale_fill_manual(values = c("0" = "blue", "1" = "red")) +
+  scale_x_continuous(breaks = seq(0, 65, by = 5))
+
+# examine frequency of head injury values by speed for all crashes, separated by SEATPOS with histogram
+ggplot(madymo_nhtsa_df, aes(x = DV_MPH, fill = INJURED)) +
+  geom_histogram(binwidth = 5, position = "dodge") +
+  labs(title = "Distribution of Crash Speeds by Injury Status (All)", x = "Crash Speed (mph)", y = "Frequency") +
+  scale_fill_manual(values = c("0" = "blue", "1" = "red")) +
+  scale_x_continuous(breaks = seq(0, 65, by = 5)) +
+  facet_wrap(~SEATPOS) +
+  # replace fill names with "Driver" and "Passenger"
+  guides(fill = guide_legend(title = "Occupant Type"))
+```
+
+
+
+```{r univariate logistic models}
+# full univariate model
+univariate_models <- list(
+  logistic_model = glm(
+    INJURED ~ (MADYMO_HIC15_transformed), 
+    family = "binomial", 
+    data = madymo_nhtsa_df),
+  
+  complex_logistic_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed + 
+      BELTUSE_BIN + BAGDEPLOY_BIN + 
+      SEATPOS + DV_MPH, 
+    family = "binomial", 
+    data = madymo_nhtsa_df),
+  
+  # drivers only
+  drivers_df_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed, 
+    family = "binomial", 
+    data = subgroups_df$drivers_df),
+  
+  # passengers only
+  passengers_df_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed, 
+    family = "binomial", 
+    data = subgroups_df$passengers_df),
+  
+  # airbag only
+  airbag_df_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed, 
+    family = "binomial", 
+    data = subgroups_df$airbag_df),
+  
+  # no airbag only
+  no_airbag_df_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed, 
+    family = "binomial", 
+    data = subgroups_df$no_airbag_df),
+  
+  # belt only
+  belt_df_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed, 
+    family = "binomial", 
+    data = subgroups_df$belt_df),
+  
+  # no belt only
+  no_belt_df_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed, 
+    family = "binomial", 
+    data = subgroups_df$no_belt_df),
+  
+  # 10-25 kmh only DVTOTAL
+  ten_twentyfive_df_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed, 
+    family = "binomial", 
+    data = subgroups_df$ten_twentyfive_df),
+  
+  # 25-40 kmh only DVTOTAL
+  twentyfive_forty_df_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed, 
+    family = "binomial", 
+    data = subgroups_df$twentyfive_forty_df),
+  
+  # 40-55 kmh only DVTOTAL
+  forty_fiftyfive_df_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed, 
+    family = "binomial", 
+    data = subgroups_df$forty_fiftyfive_df),
+  
+  # 55+ kmh only DVTOTAL
+  fiftyfive_df_model = glm(
+    INJURED ~ MADYMO_HIC15_transformed, 
+    family = "binomial", 
+    data = subgroups_df$fiftyfive_df)
+)
+
+summary(univariate_models$logistic_model)
+summary(univariate_models$complex_logistic_model)
+summary(univariate_models$drivers_df_model)
+summary(univariate_models$passengers_df_model)
+summary(univariate_models$airbag_df_model)
+summary(univariate_models$no_airbag_df_model)
+summary(univariate_models$belt_df_model)
+summary(univariate_models$no_belt_df_model)
+summary(univariate_models$ten_twentyfive_df_model)
+summary(univariate_models$twentyfive_forty_df_model)
+summary(univariate_models$forty_fiftyfive_df_model)
+summary(univariate_models$fiftyfive_df_model)
+
+
+
+# collect coefficients and p-values for all models, N count and %, avg HIC into a dataframe
+model_summary_df <- data.frame(
+  model = c("all",  "drivers", "passengers", "airbag", 
+            "no_airbag", "belt", "no_belt", 
+            "10-25 kmh", "25-40 kmh", "40-55 kmh", 
+            "55+ kmh"),
+  β = c(
+    univariate_models$logistic_model$coefficients[2],
+    univariate_models$drivers_df_model$coefficients[2],
+    univariate_models$passengers_df_model$coefficients[2],
+    univariate_models$airbag_df_model$coefficients[2],
+    univariate_models$no_airbag_df_model$coefficients[2],
+    univariate_models$belt_df_model$coefficients[2], 
+    univariate_models$no_belt_df_model$coefficients[2],
+    univariate_models$ten_twentyfive_df_model$coefficients[2],
+    univariate_models$twentyfive_forty_df_model$coefficients[2],
+    univariate_models$forty_fiftyfive_df_model$coefficients[2],
+    univariate_models$fiftyfive_df_model$coefficients[2]
+  ),
+  log_p_values = c(
+    coef(summary(univariate_models$logistic_model))[,4][2],
+    coef(summary(univariate_models$drivers_df_model))[,4][2],
+    coef(summary(univariate_models$passengers_df_model))[,4][2],
+    coef(summary(univariate_models$airbag_df_model))[,4][2],
+    coef(summary(univariate_models$no_airbag_df_model))[,4][2],
+    coef(summary(univariate_models$belt_df_model))[,4][2],
+    coef(summary(univariate_models$no_belt_df_model))[,4][2],
+    coef(summary(univariate_models$ten_twentyfive_df_model))[,4][2],
+    coef(summary(univariate_models$twentyfive_forty_df_model))[,4][2],
+    coef(summary(univariate_models$forty_fiftyfive_df_model))[,4][2],
+    coef(summary(univariate_models$fiftyfive_df_model))[,4][2]
+  ),
+  OR_exp_β = c(
+    exp(univariate_models$logistic_model$coefficients[2]),
+    exp(univariate_models$drivers_df_model$coefficients[2]),
+    exp(univariate_models$passengers_df_model$coefficients[2]),
+    exp(univariate_models$airbag_df_model$coefficients[2]),
+    exp(univariate_models$no_airbag_df_model$coefficients[2]),
+    exp(univariate_models$belt_df_model$coefficients[2]), 
+    exp(univariate_models$no_belt_df_model$coefficients[2]),
+    exp(univariate_models$ten_twentyfive_df_model$coefficients[2]),
+    exp(univariate_models$twentyfive_forty_df_model$coefficients[2]),
+    exp(univariate_models$forty_fiftyfive_df_model$coefficients[2]),
+    exp(univariate_models$fiftyfive_df_model$coefficients[2])
+  ),
+  ratio_exp_β = c(
+    NA,
+    exp(univariate_models$drivers_df_model$coefficients[2])/
+      exp(univariate_models$passengers_df_model$coefficients[2]),
+    NA,
+    exp(univariate_models$airbag_df_model$coefficients[2])/
+      exp(univariate_models$no_airbag_df_model$coefficients[2]),
+    NA,
+    exp(univariate_models$belt_df_model$coefficients[2])/
+      exp(univariate_models$no_belt_df_model$coefficients[2]),
+    NA,
+    NA,
+    NA,
+    NA,
+    NA
+  ),
+  N = c(
+    nrow(madymo_nhtsa_df),
+    nrow(subgroups_df$drivers_df),
+    nrow(subgroups_df$passengers_df),
+    nrow(subgroups_df$airbag_df),
+    nrow(subgroups_df$no_airbag_df),
+    nrow(subgroups_df$belt_df),
+    nrow(subgroups_df$no_belt_df),
+    nrow(subgroups_df$ten_twentyfive_df),
+    nrow(subgroups_df$twentyfive_forty_df),
+    nrow(subgroups_df$forty_fiftyfive_df),
+    nrow(subgroups_df$fiftyfive_df)
+  ),
+  N_prct = c(
+    round(
+      nrow(madymo_nhtsa_df)/
+        nrow(madymo_nhtsa_df)*100, 
+      digits = 2),
+    round(
+      nrow(subgroups_df$drivers_df)/
+        nrow(subgroups_df$madymo_nhtsa_df)*100, 
+      digits = 2),
+    round(
+      nrow(subgroups_df$passengers_df)/
+        nrow(subgroups_df$madymo_nhtsa_df)*100,
+      digits = 2),
+    round(
+      nrow(subgroups_df$airbag_df)/
+        nrow(subgroups_df$madymo_nhtsa_df)*100,
+      digits = 2),
+    round(
+      nrow(subgroups_df$no_airbag_df)/
+        nrow(subgroups_df$madymo_nhtsa_df)*100,
+      digits = 2),
+    round(
+      nrow(subgroups_df$belt_df)/
+        nrow(subgroups_df$madymo_nhtsa_df)*100,
+      digits = 2),
+    round(
+      nrow(subgroups_df$no_belt_df)/
+        nrow(subgroups_df$madymo_nhtsa_df)*100, 
+      digits = 2),
+    round(
+      nrow(subgroups_df$ten_twentyfive_df)/
+        nrow(subgroups_df$madymo_nhtsa_df)*100,
+      digits = 2),
+    round(
+      nrow(subgroups_df$twentyfive_forty_df)/
+        nrow(subgroups_df$madymo_nhtsa_df)*100, 
+      digits = 2),
+    round(
+      nrow(subgroups_df$forty_fiftyfive_df)/
+        nrow(subgroups_df$madymo_nhtsa_df)*100, 
+      digits = 2),
+    round(
+      nrow(subgroups_df$fiftyfive_df)/
+        nrow(subgroups_df$madymo_nhtsa_df)*100,
+      digits = 2)
+  ),
+  avg_hic = c(
+    round(
+      mean(madymo_nhtsa_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2),
+    round(
+      mean(subgroups_df$drivers_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2),
+    round(
+      mean(subgroups_df$passengers_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2),
+    round(
+      mean(subgroups_df$airbag_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2),
+    round(
+      mean(subgroups_df$no_airbag_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2),
+    round(
+      mean(subgroups_df$belt_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2),
+    round(
+      mean(subgroups_df$no_belt_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2),
+    round(
+      mean(subgroups_df$ten_twentyfive_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2),
+    round(
+      mean(subgroups_df$twentyfive_forty_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2),
+    round(
+      mean(subgroups_df$forty_fiftyfive_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2),
+    round(
+      mean(subgroups_df$fiftyfive_df$MADYMO_HIC15, na.rm = TRUE),
+      digits = 2)
+  )
+)
+
+model_summary_df
+
+```
+
+```{r clean environment}
+# clean unnecessary objects from enviroment
+# clean out all items in environment except ones in kept_items
+kept_items <- c("madymo_nhtsa_df", "MADYMO_df", "explore_df", "individual_count", "vehicle_count", "cols_explore", "data_path_2000_2015", "univariate_models", "subgroups_df")
+rm(list = setdiff(ls(), kept_items))
+```
+
+
+```{r plot coefficients and p-values}
+# Check for convergence issues
+glance(univariate_models$belt_df_model) %>% 
+  select(null.deviance, df.residual, nobs)
+
+# Check sample size and outcome distribution
+subgroups_df$belt_df %>% 
+  count(INJURED) %>% 
+  mutate(prop = n/sum(n))
+
+# Check for complete separation
+table(subgroups_df$belt_df$INJURED, subgroups_df$belt_df$MADYMO_HIC15_transformed)
+
+
+models <- list(
+  "Full" = univariate_models$logistic_model,
+  "Drivers" = univariate_models$drivers_df_model,
+  "Passengers" = univariate_models$passengers_df_model,
+  "Airbag" = univariate_models$airbag_df_model,
+  "No Airbag" = univariate_models$no_airbag_df_model,
+  "Belt" = univariate_models$belt_df_model,
+  "No Belt" = univariate_models$no_belt_df_model,
+  "10-25 kmh" = univariate_models$ten_twentyfive_df_model,
+  "25-40 kmh" = univariate_models$twentyfive_forty_df_model,
+  "40-55 kmh" = univariate_models$forty_fiftyfive_df_model,
+  "55+ kmh" = univariate_models$fiftyfive_df_model
+)
+
+
+
+# ISSUE: BELT has no confidence levels in results_table
+
+safe_tidy <- safely(~ tidy(.x, conf.int = TRUE, exponentiate = TRUE))
+
+results_table <- map_dfr(models, ~ {
+  result <- safe_tidy(.x)
+  if (!is.null(result$error)) {
+    tidy(.x, conf.int = FALSE, exponentiate = TRUE) %>%  # Fallback without CIs
+      mutate(conf.low = NA, conf.high = NA)
+  } else {
+    result$result
+  }
+}, .id = "Subgroup") %>% 
+  filter(term == "MADYMO_HIC15_transformed") %>% 
+  select(Subgroup, estimate, std.error, p.value, conf.low, conf.high)
+
+
+
+
+
+
+
+# visualize odds ratios CIs per univariate model using 
+
+
+
+ggplot(results_table, aes(x = estimate, y = Subgroup)) +
+  geom_point() +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  labs(x = "Odds Ratio (95% CI)", y = "Subgroup", title = "Effect of MADYMO_HIC15_transformed on Injury Risk") +
+  theme_minimal() +
+  # only show -1 to 1
+  scale_x_continuous(limits = c(0.8, 3))
+```
+
 
