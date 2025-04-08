@@ -1,0 +1,31 @@
+Name,Data type,Unit,Description,Dataset
+DV_MPH,continuous,miles per hour,delta V,madymo
+SEATPOS,categorical,"driver, passenger",seat position,madymo
+BELTUSE_BIN,binary,"0, 1",seatbelt use,madymo
+BAGDEPLOY_BIN,binary,"0, 1",airbag deployment,madymo
+HIC15,continuous,HIC,HIC15,madymo
+T1-15,continuous,millisecond,beginning time of window of HIC15,madymo
+T2-15,continuous,millisecond,end time of window of HIC15,madymo
+HIC35,continuous,HIC,HIC36,madymo
+T1-36,continuous,millisecond,beginning time of window of HIC36,madymo
+T2-36,continuous,millisecond,end time of window of HIC36 ,madymo
+PEAK_LACC,continuous,meters per second squared,peak linear acceleration,madymo
+PEAK_AACC,continuous,radians per second squared,peak angular acceleration,madymo
+ID,categorical,number,unique identifier,nhtsa
+BAGDEPLOY_BIN,binary,"0, 1",airbag deployment,nhtsa
+BELTUSE_BIN,binary,"0, 1",seatbelt use,nhtsa
+BMI_HIGH,binary,"0, 1",BMI ≥ 30,nhtsa
+SEATPOS,categorical,"11, 13",seat position,nhtsa
+CONCUSSION,binary,"0, 1",head injury,nhtsa
+DVEST,categorical,"10-25 kmh, etc.",categorical delta V,nhtsa
+MAIS,ordinal,"0 - 6, 9",maximum AIS,nhtsa
+AIS1,binary,"0, 1",AIS 1 - 6,nhtsa
+PSU,categorical,number,primary sampling unit,nhtsa
+SEX_BIN,binary,"0, 1",female = 1,nhtsa
+YEAR,categorical,year,year included in NHTSA,nhtsa
+AGE,continuous,years,age in years,nhtsa
+BMI,continuous,BMI,body mass index,nhtsa
+DV_MPH,continuous,miles per hour,delta V in mph,nhtsa
+DVTOTAL,continuous,kilometers per hour,delta V in kph,nhtsa
+HEIGHT,continuous,centimeters,height in cm,nhtsa
+WEIGHT,continuous,kilograms,weight in kg,nhtsa
