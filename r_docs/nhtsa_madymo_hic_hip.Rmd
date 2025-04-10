@@ -497,7 +497,7 @@ MADYMO_df$BAGDEPLOY_BIN <- as.factor(MADYMO_df$BAGDEPLOY_BIN)
 
 # join MADYMO data to NHTSA dataframe
 madymo_nhtsa_df <- nhtsa_combined_df %>%
-  left_join(MADYMO_df, by = join_by(DV_MPH == DV_MPH, SEATPOS == SEATPOS, BELTUSE_BIN == BELTUSE_BIN, BAGDEPLOY_BIN == BAGDEPLOY_BIN))
+  left_join(MADYMO_df, by = join_by(DV_MPH == DVTOTAL, SEATPOS == SEATPOS, BELTUSE_BIN == BELTUSE_BIN, BAGDEPLOY_BIN == BAGDEPLOY_BIN))
 
 # transform/scale HIC15 to see if numbers are more legible
 madymo_nhtsa_df$HIC15_thousand <-
@@ -517,16 +517,10 @@ madymo_nhtsa_df$HIC15_sqrt <-
 summary(madymo_nhtsa_df)
 ```
 
-```{r examine missingness and extreme values}
-# examine missingness
-missing_values <- madymo_nhtsa_df %>%
-  summarise_all(~ sum(is.na(.))) %>%
-  gather(variable, missing) %>%
-  filter(missing > 0) %>%
-  arrange(desc(missing))
 
-print(missing_values)
-
+```{r extreme variables}
+# preserve madymo_nhtsa_df before removing extreme values
+madymo_nhtsa_df_full <- madymo_nhtsa_df
 # examine extreme values
 extreme_values <- madymo_nhtsa_df %>%
   select_if(is.numeric) %>%
@@ -537,7 +531,97 @@ extreme_values <- madymo_nhtsa_df %>%
     max = max(value, na.rm = TRUE)
   ) %>%
   arrange(desc(abs(min)), desc(abs(max)))
-print(extreme_values)
+
+# examine values
+print(extreme_values, n = 23)
+
+# create list of IDs with omittable values
+extreme_value_ids <- c()
+
+# MODELYR values all reasonable
+# all MADYMO measurements come from simulation, not subject to incorrect input
+# YEAR was inches before 1993, but this is not included in the dataset
+# WEIGHT and HEIGHT were imperial (pounds and inches) before 1993, but that is not relevant for this dataset
+# WEIGHT has maximum 150, all values above 150 are combined
+# HEIGHT has maximum 220, all values over 200 are combined
+
+# investigate BMI (instead of HEIGHT and WEIGHT separately - helps identify unusual values)
+bmi_df <- madymo_nhtsa_df %>%
+  filter(BMI < 10 | BMI > 70) %>%
+  select(ID, YEAR, BMI, HEIGHT, WEIGHT, AGE)
+# ID 858 has BMI 1.73 (height 170 cm, weight 5 kg, age 39) - probably a data entry error; can omit
+extreme_value_ids <- c(
+  extreme_value_ids,
+  858
+)
+# ID 1902 and 9191 are 5.7 and 7.4 BMI, (heights 157, 168 and weights 14, 21 and ages 34, 47), unsure about these
+extreme_value_ids <- c(
+  extreme_value_ids,
+  1902, 9191
+)
+# except ID 7553, all HEIGHTS with BMI > 100 appear to be input as inches (between 40 and 75). consider re-coding these
+# re-code HEIGHT of IDs where BMI > 101 and HEIGHT < 75, from inches to cm
+extreme_values_df <- madymo_nhtsa_df %>%
+  filter(BMI > 101 & HEIGHT < 75) %>%
+  mutate(HEIGHT = HEIGHT * 2.54) %>%
+  select(ID, HEIGHT)
+# copy new recoded values back to madymo_nhtsa_df
+madymo_nhtsa_df <- madymo_nhtsa_df %>%
+  rows_update(extreme_values_df, by = "ID") %>%
+  # recalculate BMI with new HEIGHT values
+  mutate(BMI = WEIGHT / ((HEIGHT / 100) ^ 2))
+  
+# TIME values all expected, within 0001 and 2400
+
+# investigate VEHWGT
+# histogram of VEHWGT
+ggplot(madymo_nhtsa_df, aes(x = VEHWGT)) +
+  geom_histogram(binwidth = 10) +
+  labs(title = "Histogram of VEHWGT", x = "VEHWGT", y = "Count") +
+  theme_minimal()
+# examine extreme values
+vehwgt_df <- madymo_nhtsa_df %>%
+  filter(VEHWGT < 1000 | VEHWGT > 5000) %>%
+  select(ID, VEHWGT, BODYTYPE, HEIGHT)
+# no non-zero weights below 1400; no non-9999 weights over 5177
+# count of 9999 or 0 values:
+vehwgt_extreme_df <- madymo_nhtsa_df %>%
+  filter(VEHWGT %in% c(9999, 0)) %>%
+  select(ID, VEHWGT, BODYTYPE, HEIGHT) 
+vehwgt_extreme_count <- nrow(vehwgt_extreme_df)
+# count: 194
+vehwgt_extreme_count / nrow(madymo_nhtsa_df) * 100
+# 194 is 1.499% of dataset, therefore can be omitted
+# add IDs to extreme_value_ids
+extreme_value_ids <- c(
+  extreme_value_ids,
+  vehwgt_extreme_df$ID
+)
+
+# investigate AGE
+# histogram of AGE
+ggplot(madymo_nhtsa_df, aes(x = AGE)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "Histogram of AGE", x = "AGE", y = "Count") +
+  theme_minimal()
+# all values within 0 and 97 (max)
+
+# exclude vars with normal ranges (can adjust which groups are added to the list; VEHWGT for example can be excluded)
+madymo_nhtsa_df <- madymo_nhtsa_df %>%
+  filter(!ID %in% extreme_value_ids)
+```
+
+```{r examine missingness and extreme values}
+# examine missingness
+missing_values <- madymo_nhtsa_df %>%
+  summarise_all(~ sum(is.na(.))) %>%
+  gather(variable, missing) %>%
+  filter(missing > 0) %>%
+  arrange(desc(missing))
+
+print(missing_values)
+
+
 ```
 
 ```{r baseline descriptives}
@@ -594,10 +678,6 @@ for (var in baseline_vars) {
     )
   } else {
     # Categorical variables
-    # Convert to factor if not already
-    cases_df[[var$var_name]] <- factor(cases_df[[var$var_name]])
-    controls_df[[var$var_name]] <- factor(controls_df[[var$var_name]])
-    
     # Get counts and percentages
     case_counts <- table(cases_df[[var$var_name]])
     case_pct <- prop.table(case_counts) * 100
@@ -642,6 +722,10 @@ for (var in baseline_vars) {
 # View the final table
 print(baseline_descriptives)
 
+
+# rethink what groups are split by in baseline descriptives (outcome might not be best way to do it, but no predetermined stratification variable like sex, like seen in other papers)
+# not difficult to do, so can just adjust code after meeting with maurice
+
 ```
 
 
@@ -650,6 +734,13 @@ print(baseline_descriptives)
 occ_vars <- c("SEX", "AGE", "BMI")
 env_vars <- c("WEATHER", "MAKE", "MODELYR", "VEHWGT")
 madymo_vars <- c("DV_MPH", "SEATPOS", "BELTUSE_BIN", "BAGDEPLOY_BIN")
+```
+
+
+
+```{r univariate logistic regression}
+# univariate logistic regression
+# examine correlation between DV_MPH and HIC15
 ```
 
 
