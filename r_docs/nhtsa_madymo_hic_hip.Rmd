@@ -13,6 +13,8 @@ library(purrr)
 library(pROC)
 library(car) 
 library(survey)
+library(surveyROC)
+library(svyROC)
 library(srvyr)
 library(vroom)
 library(caret)
@@ -517,7 +519,6 @@ madymo_nhtsa_df$HIC15_sqrt <-
 summary(madymo_nhtsa_df)
 ```
 
-
 ```{r extreme variables}
 # preserve madymo_nhtsa_df before removing extreme values
 madymo_nhtsa_df_full <- madymo_nhtsa_df
@@ -611,6 +612,118 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
   filter(!ID %in% extreme_value_ids)
 ```
 
+```{r functions for survey model evaluation}
+# function to print and examine ROC curve, AUC, and other metrics
+roc_weighted_fun <- function(design, model) {
+  # Extract required components from survey design
+  roc_data <- data.frame(
+    y = design$variables$HIPR,
+    phat = fitted(model),
+    weights = design$variables$RATWGT
+  )
+
+  
+  # Create weighted ROC object
+  mycurve <- wroc(
+    response.var = "y",
+    phat.var = "phat",
+    weights.var = "weights",
+    data = roc_data,
+    tag.event = levels(roc_data$y)[2],
+    tag.nonevent = levels(roc_data$y)[1],
+    cutoff.method = "Youden"
+  )
+  
+  # Calculate prevalence of the event
+  event_level <- levels(roc_data$y)[2]
+  prevalence <- sum(roc_data$weights[roc_data$y == event_level]) / sum(roc_data$weights)
+    
+  # browser()
+  
+  # Extract performance metrics
+  metrics_list <- list(
+    AUC = mycurve$wauc,
+    Optimal_Cutoff = mycurve$optimal.cutoff$cutoff.value,
+    Sensitivity = mycurve$optimal.cutoff$Sew,
+    Specificity = mycurve$optimal.cutoff$Spw,
+    # PPV
+    PPV = 100 * ((mycurve$optimal.cutoff$Sew * prevalence) / 
+                   ((mycurve$optimal.cutoff$Sew * prevalence) + 
+                      ((1 - mycurve$optimal.cutoff$Spw) * (1 - prevalence))))
+  )
+  
+  # Generate plot
+  roc_plot <- wroc.plot(
+    x = mycurve,
+    print.auc = TRUE,
+    print.cutoff = TRUE
+  )
+  
+  # Return both plot and metrics
+  return(list(
+    mycurve = mycurve,
+    metrics = metrics_list
+  ))
+}
+
+
+# function for full model performance evaluation
+model_eval <- function(design, model) {
+  roc_weighted_fun(
+    design = design,
+    model = model
+  )
+}
+```
+
+
+```{r survey model definition}
+# build survey design object before adjust extreme values
+survey_design_before_extreme_adjustment <- svydesign(
+  id = ~PSU,
+  strata = ~PSUSTRAT,
+  weights = ~RATWGT,
+  data = madymo_nhtsa_df_full
+)
+
+# build survey design object after adjust extreme values
+survey_design <- svydesign(
+  id = ~PSU,
+  strata = ~PSUSTRAT,
+  weights = ~RATWGT,
+  data = madymo_nhtsa_df
+)
+
+# survey logistic model before adjusting extreme values
+survey_model_full <- svyglm(
+  HIPR ~ HIC15_log,
+  design = survey_design_before_extreme_adjustment,
+  family = quasibinomial
+ )
+summary(survey_model_full)
+
+# survey logistic model after adjusting extreme values
+survey_model_extreme_adjusted <- svyglm(
+  HIPR ~ HIC15_log,
+  design = survey_design,
+  family = quasibinomial
+ )
+summary(survey_model_extreme_adjusted)
+
+
+# use model eval function on both models
+model_eval_full <- model_eval(
+  survey_design_before_extreme_adjustment, 
+  survey_model_full
+)
+
+model_eval_extreme_adjusted <- model_eval(
+  survey_design, 
+  survey_model_extreme_adjusted
+)
+
+```
+
 ```{r examine missingness and extreme values}
 # examine missingness
 missing_values <- madymo_nhtsa_df %>%
@@ -622,6 +735,7 @@ missing_values <- madymo_nhtsa_df %>%
 print(missing_values)
 
 
+# TO DO: find missing randomness, make decisions for handling vars based on this
 ```
 
 ```{r baseline descriptives}
@@ -744,7 +858,39 @@ madymo_vars <- c("DV_MPH", "SEATPOS", "BELTUSE_BIN", "BAGDEPLOY_BIN")
 ```
 
 
-```{r logistic regression normal}
+
+```{r comparing model performance}
+compared_models <- c(
+  "model_eval_full", 
+  "model_eval_extreme_adjusted")
+
+# compare models in dataframe using loop
+comparison_df <- data.frame()
+for (model in compared_models) {
+  # Extract the AUC and other metrics
+  auc <- get(model)$metrics$AUC
+  optimal_cutoff <- get(model)$metrics$Optimal_Cutoff
+  sensitivity <- get(model)$metrics$Sensitivity
+  specificity <- get(model)$metrics$Specificity
+  PPV <- get(model)$metrics$PPV
+  
+  # Create a new row for the comparison dataframe
+  new_row <- data.frame(
+    Model = model,
+    AUC = auc,
+    Optimal_Cutoff = optimal_cutoff,
+    Sensitivity = sensitivity,
+    Specificity = specificity,
+    PPV = PPV
+  )
+  
+  # Append the new row to the comparison dataframe
+  comparison_df <- rbind(comparison_df, new_row)
+}
+```
+
+
+```{r non-survey logistic regression normal, eval=FALSE}
 # vif(lm(DV_MPH ~ HIC15_thousand, data = madymo_nhtsa_df))
 
 model <- glm(HIPR ~ HIC15_thousand, 
@@ -796,9 +942,7 @@ plot(roc_obj_final, main = "ROC Curve for Final Model")
 
 ```
 
-
-
-```{r regular logistic regression log transformed}
+```{r non-survey logistic regression log transformed, eval=FALSE}
 # visualize 
 
 
@@ -855,7 +999,7 @@ cor(madymo_nhtsa_df$DV_MPH, madymo_nhtsa_df$HIC15_log)
 
 ```
 
-```{r make DV_MPH categories}
+```{r make DV_MPH categories, eval=FALSE}
 # create DV_MPH_two var where DVMPH is 0 if DVMPH < 35 and 1 if DVMPH >= 35
 madymo_nhtsa_df$DV_MPH_two <- ifelse(madymo_nhtsa_df$DV_MPH < 35, 0, 1)
 madymo_nhtsa_df$DV_MPH_two <- as.factor(madymo_nhtsa_df$DV_MPH_two)
@@ -871,8 +1015,7 @@ madymo_nhtsa_df$DV_MPH_high <- ifelse(madymo_nhtsa_df$DV_MPH < 50, 0, 1)
 madymo_nhtsa_df$DV_MPH_high <- as.factor(madymo_nhtsa_df$DV_MPH_high)
 ```
 
-
-```{r survey logistic model}
+```{r survey logistic model, eval=FALSE}
 # survey logistic model
 # create survey design object with RATWGT as weights, PSU as cluster, and PSUSTRAT as strata
 survey_design <- svydesign(
@@ -954,35 +1097,6 @@ summary(survey_model)
 # confusionMatrix(table(predict(survey_model, type = "response") > 0.5, madymo_nhtsa_df$HIPR))
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ```{r visualize outcome variables}
 # examine frequency of DV_MPH values for all crashes with histogram
 ggplot(madymo_nhtsa_df, aes(x = DV_MPH)) +
@@ -1018,7 +1132,6 @@ ggplot(madymo_nhtsa_df, aes(x = DV_MPH, fill = MAIS_cat)) +
   guides(fill = guide_legend(title = "Head injury"))
 ```
 
-
 ```{r visualize HIC15 and DV_MPH relationship}
 
 # scatterplot of HIC15_thousand (10,000 scale) and DV_MPH to see relationship
@@ -1046,237 +1159,6 @@ ggplot(madymo_nhtsa_df, aes(y = log(HIC15), x = DV_MPH)) +
   # draw regression line
   geom_smooth(method = "lm")
 ```
-
-
-
-```{r }
-# function for logistic model with arguments for predictor, outcome, and covariates
-logistic_model_fun <- function(
-    df = madymo_nhtsa_df, 
-    predictor, 
-    outcome, 
-    covariates) {
-  glm(
-    as.formula(
-      paste0(outcome, " ~ ", predictor, " + ", paste(
-        covariates, collapse = " + ")
-      )
-    ),
-    family = "binomial",
-    data = df,
-    na.action = na.exclude
-  )
-}
-
-# test function
-logistic_model_fun(
-  predictor = "HIC15_thousand",
-  outcome = "HIPR",
-  covariates = c("BELTUSE_BIN")
-)
-
-
-
-
-# FIND OUT WHY TP ONLY SHOWING AS 1??
-
-
-
-logistic_model_analysis <- function(
-    df = madymo_nhtsa_df,
-    predictor,
-    outcome,
-    covariates = NULL,
-    threshold = 0.5) {
-  
-  # Initialize result template
-  result_template <- tibble(
-    predictor = predictor,
-    outcome = outcome,
-    covariates = ifelse(length(covariates) == 0, NA_character_, 
-                       paste(covariates, collapse = ", ")),
-    n_obs = NA_integer_,
-    or = NA_real_,
-    or_ci_lower = NA_real_,
-    or_ci_upper = NA_real_,
-    aic = NA_real_,
-    bic = NA_real_,
-    auc = NA_real_,
-    sensitivity = NA_real_,
-    specificity = NA_real_,
-    accuracy = NA_real_,
-    ppv = NA_real_,
-    npv = NA_real_,
-    convergence = NA
-  )
-  
-  tryCatch({
-    # Create formula
-    covariate_part <- if (length(covariates) > 0) {
-      paste("+", paste(covariates, collapse = " + "))
-    } else {
-      ""
-    }
-    
-    form <- as.formula(paste(
-      outcome, "~", predictor, covariate_part
-    ))
-    
-    # Fit model
-    model <- glm(
-      formula = form,
-      family = binomial(link = "logit"),
-      data = df,
-      na.action = na.exclude
-    )
-    
-    # Check for complete separation
-    if(!model$converged) {
-      return(result_template %>% mutate(convergence = FALSE))
-    }
-    
-    # Model metrics
-    model_summary <- broom::tidy(model, conf.int = TRUE, exponentiate = TRUE)
-    auc <- pROC::auc(response = model$y, predictor = fitted(model))
-    
-    # Get main predictor OR and CI
-    main_effect <- model_summary %>%
-      filter(term == predictor) %>%
-      transmute(or = estimate,
-                or_ci_lower = conf.low,
-                or_ci_upper = conf.high)
-    
-    # Classification metrics
-    pred_prob <- predict(model, type = "response")
-    pred_class <- ifelse(pred_prob >= threshold, 1, 0)
-    actual <- model$y
-    
-    tp <- sum(pred_class == 1 & actual == 1, na.rm = TRUE)
-    tn <- sum(pred_class == 0 & actual == 0, na.rm = TRUE)
-    fp <- sum(pred_class == 1 & actual == 0, na.rm = TRUE)
-    fn <- sum(pred_class == 0 & actual == 1, na.rm = TRUE)
-    
-    sensitivity <- tp / (tp + fn)
-    specificity <- tn / (tn + fp)
-    ppv <- tp / (tp + fp)
-    npv <- tn / (tn + fn)
-    accuracy <- (tp + tn) / (tp + tn + fp + fn)
-    
-    # Compile results
-    result_template %>%
-      mutate(
-        n_obs = model$df.null + 1,
-        or = main_effect$or,
-        or_ci_lower = main_effect$or_ci_lower,
-        or_ci_upper = main_effect$or_ci_upper,
-        aic = AIC(model),
-        bic = BIC(model),
-        auc = as.numeric(auc),
-        sensitivity = sensitivity,
-        specificity = specificity,
-        accuracy = accuracy,
-        ppv = ppv,
-        npv = npv,
-        convergence = TRUE
-      )
-  }, error = function(e) {
-    message(paste("Error in model:", predictor, "-", outcome))
-    result_template %>% mutate(convergence = FALSE)
-  })
-}
-
-# For permutation testing with univariate models:
-generate_all_models <- function(df, predictors, outcomes, covariates_list) {
-  expand_grid(
-    predictor = predictors,
-    outcome = outcomes,
-    covariates = covariates_list
-  ) %>%
-    rowwise() %>%
-    mutate(results = list(logistic_model_analysis(
-      df = df,
-      predictor = predictor,
-      outcome = outcome,
-      covariates = covariates
-    ))) %>%
-    unnest(results)
-}
-
-# Example usage for single model:
-results <- logistic_model_analysis(
-  df = madymo_nhtsa_df,
-  predictor = "HIC15",
-  outcome = "HIPR",
-  # covariates = c("SEATPOS"),
-  threshold = 0.5
-)
-results
-
-
-model_test <- glm(
-  data = madymo_nhtsa_df,
-  formula = HIPR ~ HIC15_thousand + BELTUSE_BIN + BAGDEPLOY_BIN + DV_MPH,
-  family = "binomial"
-)
-summary(model_test)
-
-model_test <- glm(
-  data = madymo_nhtsa_df,
-  formula = HIPR ~ HIC15_thousand + DV_MPH,
-  family = "binomial"
-)
-summary(model_test)
-
-# roc curve for model_test
-roc_test <- roc(
-  response = madymo_nhtsa_df$HIPR,
-  predictor = predict(model_test, type = "response")
-)
-# visualize roc curve
-plot(roc_test)
-
-
-
-# check VIF for DV_MPH and HIC15_thousand
-vif(model_test)
-# under 2 for both
-
-# check correlation between suspected variables
-cor(madymo_nhtsa_df$DV_MPH, madymo_nhtsa_df$HIC15_thousand)
-# 0.53 - not significant
-
-# check interaction terms
-model_test <- glm(
-  data = madymo_nhtsa_df,
-  formula = HIPR ~ HIC15_thousand * DV_MPH,
-  family = "binomial"
-)
-summary(model_test)
-# result: as hic increases, dv increases but less
-# suspect that it is because HIC increases exponentially and DV increases linearly
-
-
-```
-
-
-```{r }
-# transform HIC with log and see how that affects the model
-model_test_log <- glm(
-  data = madymo_nhtsa_df,
-  formula = HIPR ~ HIC15_log + DV_MPH + BELTUSE_BIN + BAGDEPLOY_BIN + SEATPOS,
-  family = "binomial"
-)
-summary(model_test_log)
-
-roc_test <- roc(
-  response = madymo_nhtsa_df$HIPR,
-  predictor = predict(model_test_log, type = "response")
-)
-
-plot(roc_test)
-
-```
-
 
 ```{r univariate logistic models, eval=FALSE}
 # full univariate model
@@ -1502,26 +1384,6 @@ roc_obj <- roc(madymo_nhtsa_df$HIPR, madymo_nhtsa_df$HIC15)
 
 ```
 
-```{r power calculation, eval=FALSE}
-# Your total sample size
-n <- nrow(madymo_nhtsa_df)
-# Target odds ratio
-OR <- 1.3
-# SD of HIC (replace with your data)
-sigma_x <- 3812.775/1000
-# Overall probability of head injury
-p <- 0.06352197435
-alpha <- 0.05
-
-# Calculate power
-beta1 <- log(OR)
-z_alpha <- qnorm(1 - alpha/2)
-z_power <- sqrt(n * p * (1 - p) * beta1^2 * sigma_x^2) - z_alpha
-power <- pnorm(z_power)
-
-print(power)
-```
-
 ```{r clean environment}
 # clean unnecessary objects from enviroment
 # clean out all items in environment except ones in kept_items
@@ -1675,200 +1537,6 @@ digraph DAG {
 
 
 
-
-
-
-
-
-
-
-
-
 ```{}
 # OLD SURVEY CODE
-```
-
-
-
-```{r create survey design object}
-# create survey design object
-nhtsa_survey_design <- svydesign(
-  id = ~PSU,
-  strata = ~PSUSTRAT,
-  weights = ~RATWGT,
-  data = madymo_nhtsa_df
-)
-```
-
-```{r loess, eval=FALSE}
-# loess plot
-ggplot(madymo_nhtsa_df, aes(x = DV_MPH, y = HIC15)) +
-  geom_point() +
-  geom_smooth(method = "loess") +
-  labs(title = "Scatterplot of HIC15 and DV_MPH", x = "DV_MPH", y = "HIC15")
-```
-
-```{r survey logistic regression stepwise, eval=FALSE}
-# survey logistic regression with all variables and interactions
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + BELTUSE_BIN + BAGDEPLOY_BIN + SEATPOS + 
-      DV_MPH_BIN:BELTUSE_BIN + DV_MPH_BIN:BAGDEPLOY_BIN +
-      DV_MPH_BIN:SEATPOS + BELTUSE_BIN:BAGDEPLOY_BIN +
-      BELTUSE_BIN:SEATPOS + BAGDEPLOY_BIN:SEATPOS + 
-      DV_MPH_BIN:BELTUSE_BIN:BAGDEPLOY_BIN +
-      DV_MPH_BIN:BELTUSE_BIN:SEATPOS +
-      # DV_MPH_BIN:BAGDEPLOY_BIN:SEATPOS +
-      BELTUSE_BIN:BAGDEPLOY_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + BELTUSE_BIN + BAGDEPLOY_BIN + SEATPOS + 
-      DV_MPH_BIN:BELTUSE_BIN + DV_MPH_BIN:BAGDEPLOY_BIN +
-      DV_MPH_BIN:SEATPOS + BELTUSE_BIN:BAGDEPLOY_BIN +
-      BELTUSE_BIN:SEATPOS + BAGDEPLOY_BIN:SEATPOS + 
-      DV_MPH_BIN:BELTUSE_BIN:SEATPOS +
-      # DV_MPH_BIN:BAGDEPLOY_BIN:SEATPOS +
-      BELTUSE_BIN:BAGDEPLOY_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + BELTUSE_BIN + BAGDEPLOY_BIN + SEATPOS + 
-      DV_MPH_BIN:BELTUSE_BIN +
-      DV_MPH_BIN:SEATPOS + BELTUSE_BIN:BAGDEPLOY_BIN +
-      BELTUSE_BIN:SEATPOS + BAGDEPLOY_BIN:SEATPOS + 
-      # DV_MPH_BIN:BAGDEPLOY_BIN:SEATPOS +
-      BELTUSE_BIN:BAGDEPLOY_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + BELTUSE_BIN + BAGDEPLOY_BIN + SEATPOS + 
-      DV_MPH_BIN:BELTUSE_BIN +
-      DV_MPH_BIN:SEATPOS + BELTUSE_BIN:BAGDEPLOY_BIN +
-      BELTUSE_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + BELTUSE_BIN + BAGDEPLOY_BIN + SEATPOS + 
-      DV_MPH_BIN:SEATPOS + BELTUSE_BIN:BAGDEPLOY_BIN +
-      BELTUSE_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + BAGDEPLOY_BIN + SEATPOS + 
-      DV_MPH_BIN:SEATPOS + BELTUSE_BIN:BAGDEPLOY_BIN +
-      BELTUSE_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + BAGDEPLOY_BIN + SEATPOS + 
-      DV_MPH_BIN:SEATPOS + BELTUSE_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + SEATPOS + 
-      DV_MPH_BIN:SEATPOS + BELTUSE_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + DV_MPH_BIN:SEATPOS + BELTUSE_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + BELTUSE_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-summary(
-  survey_logistic_model <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + BELTUSE_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-)
-
-survey_logistic_model_stepwise_final <- svyglm(
-    HIPR ~ HIC15_thousand + 
-      DV_MPH_BIN + BELTUSE_BIN:SEATPOS,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-
-survey_logistic_model_univariate <- svyglm(
-    HIPR ~ HIC15_thousand,
-    design = nhtsa_survey_design,
-    family = binomial
-  )
-summary(survey_logistic_model_univariate)
-```
-
-```{r power analysis big, eval=FALSE}
-# histogram of HIC15
-ggplot(madymo_nhtsa_df, aes(log(x = HIC15))) +
-  geom_histogram(binwidth = .5) +
-  labs(title = "Histogram of HIC15", x = "HIC15", y = "Frequency")
-
-# mean and sd of log(HIC15) for g*Power power analysis
-mean(log(madymo_nhtsa_df$HIC15))
-sd(log(madymo_nhtsa_df$HIC15))
-
-
-```
-
-
-```{r predicted values}
-# maybe use this to find pred values?
-# pred_means <- svypredmeans(
-#   survey_logistic_model_univariate,
-#   ~HIPR
-# )
 ```
