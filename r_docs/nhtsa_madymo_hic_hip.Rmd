@@ -18,6 +18,12 @@ library(svyROC)
 library(srvyr)
 library(vroom)
 library(caret)
+library(misty)
+library(mvnmle)
+library(naniar)
+library(gridExtra)
+library(mice)
+library(effsize)
 knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 data_path_2000_2015 <- file.path("data", "NHTSA_databases", "NHTSA All files")
 ```
@@ -417,7 +423,58 @@ nhtsa_combined_df <- nhtsa_combined_df %>%
     OI = ifelse(OI < 1, 0, OI),
     # need to make sure this is catching the right group
     INJURED = ifelse(OI == 1 | MAIS > 0 | INJNUM > 0, 1, 0),
-    SEX_BIN = ifelse(SEX == 1, 0, ifelse(SEX == 9, NA, 1))
+    SEX_BIN = ifelse(SEX == 1, 0, ifelse(SEX == 9, NA, 1)),
+    # combine WEATHER and CLIMATE; they are the same but different years and coded differently
+    WEATHER = ifelse(
+      YEAR %in% c(2000:2006),
+      WEATHER,
+      ifelse(
+        YEAR %in% c(2007:2015),
+        CLIMATE,
+        NA
+      )
+    ),
+    # match WEATHER codes
+    WEATHER = ifelse(
+      WEATHER == 18, 0, 
+      ifelse(
+        WEATHER == 12, 1,
+        ifelse(
+          WEATHER == 13 | WEATHER == 21, 2,
+          ifelse(
+            WEATHER == 14 | WEATHER == 15, 3,
+            ifelse(
+              WEATHER == 7, 98,
+              ifelse(
+                WEATHER == 98, 7, WEATHER
+              )))))),
+    # BODYTYPE values > 20 have no VEHWGT (as taken from VIN) so this pairs them with Gross Vehicle Weight Rating (GVWR) using WGTCDTR variable
+    VEHWGT = ifelse(
+      is.na(VEHWGT),
+      WGTCDTR,
+      VEHWGT
+    ),
+    # match WGTCDTR codes to weights
+    VEHWGT = ifelse(
+      VEHWGT == 1, 6000, 
+      ifelse(
+        VEHWGT == 2, 8000,
+        ifelse(
+          VEHWGT == 3, 12000,
+          ifelse(
+            VEHWGT == 4, 15000,
+            ifelse(
+              VEHWGT == 5, 17750,
+              ifelse(
+                VEHWGT == 6, 22750, 
+                ifelse(
+                  VEHWGT == 7, 29500,
+                  ifelse(
+                    VEHWGT == 8, 33000,
+                    ifelse(
+                      VEHWGT == 9, NA,
+                    VEHWGT
+              )))))))))
   ) %>%
   filter(
     DV_MPH >= 5 & DV_MPH <= 65,
@@ -425,6 +482,12 @@ nhtsa_combined_df <- nhtsa_combined_df %>%
     !is.na(BAGDEPLOY_BIN),
     !is.na(CONCUSSION)
   )
+
+
+# after reexamining WEATHER in the manual, it was only recorded until 2006. will now try to create joined weather variable that connects the different variable values
+
+
+
 
 print(paste("all entries all years (before filter):", nrow(nhtsa_combined_df)))
 
@@ -451,10 +514,10 @@ nhtsa_combined_df <- nhtsa_combined_df %>%
 
 # make appropriate variables into factors
 cols_all <- sort(colnames(nhtsa_combined_df))
-cols_factor <- c("BAGDEPLY", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI_HIGH", "CONCUSSION", "DVEST", "HIPR", "ID", "INJURED", "MAIS", "MAIS_cat", "MANUSE", "OBJCONT1", "OBJCONT2", "OCCNO", "OI", "PSU", "PSUSTRAT", "ROLLOVER", "SEATPOS", "SEX_BIN", "VEHNO", "VEHTYPE", "YEAR", "ALCINV", "DEATH", "DRUGS", "MAKE", "WEATHER")
+cols_factor <- c("BAGDEPLY", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI_HIGH", "CONCUSSION", "DVEST", "HIPR", "ID", "INJURED", "MAIS", "MAIS_cat", "MANUSE", "OBJCONT1", "OBJCONT2", "OCCNO", "OI", "PSU", "PSUSTRAT", "ROLLOVER", "SEATPOS", "SEX_BIN", "VEHNO", "VEHTYPE", "YEAR", "ALCINV", "DEATH", "DRGINV", "MAKE", "WEATHER")
 nhtsa_combined_df[cols_factor] <- lapply(nhtsa_combined_df[cols_factor], factor)
 
-cols_explore <- c(cols_factor, "AGE", "BMI", "DV_MPH", "DV_MPH", "HEIGHT",  "WEIGHT")
+cols_explore <- c(cols_factor, "AGE", "BMI", "DV_MPH", "DV_MPH")
 
 explore_df <- subset(nhtsa_combined_df, select = cols_explore)
 
@@ -470,7 +533,7 @@ summary(explore_df)
 
 ```{r keep only relevant columns}
 # columns that will be kept in final dataset
-cols_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "DVEST", "AIS1", "MAIS", "OCCNO", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "DV_MPH_BIN", "HEIGHT", "WEIGHT", "PSU", "PSUSTRAT", "RATWGT", "BODYTYPE", "ALCINV", "DEATH", "DRUGS", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "VEHTYPE")
+cols_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "DVEST", "AIS1", "MAIS", "OCCNO", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "DV_MPH_BIN", "HEIGHT", "WEIGHT", "PSU", "PSUSTRAT", "RATWGT", "BODYTYPE", "ALCINV", "DEATH", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "VEHTYPE")
 
 # select only relevant columns
 nhtsa_combined_df <- nhtsa_combined_df %>%
@@ -571,7 +634,12 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
   rows_update(extreme_values_df, by = "ID") %>%
   # recalculate BMI with new HEIGHT values
   mutate(BMI = WEIGHT / ((HEIGHT / 100) ^ 2))
-  
+
+# delete HEIGHT and WEIGHT from madymo_nhtsa_df because BMI now is based on valid HEIGHT and WEIGHT values
+madymo_nhtsa_df <- madymo_nhtsa_df %>%
+  select(-HEIGHT, -WEIGHT)
+
+
 # TIME values all expected, within 0001 and 2400
 
 # investigate VEHWGT
@@ -583,12 +651,12 @@ ggplot(madymo_nhtsa_df, aes(x = VEHWGT)) +
 # examine extreme values
 vehwgt_df <- madymo_nhtsa_df %>%
   filter(VEHWGT < 1000 | VEHWGT > 5000) %>%
-  select(ID, VEHWGT, BODYTYPE, HEIGHT)
+  select(ID, VEHWGT, BODYTYPE)
 # no non-zero weights below 1400; no non-9999 weights over 5177
 # count of 9999 or 0 values:
 vehwgt_extreme_df <- madymo_nhtsa_df %>%
   filter(VEHWGT %in% c(9999, 0)) %>%
-  select(ID, VEHWGT, BODYTYPE, HEIGHT) 
+  select(ID, VEHWGT, BODYTYPE) 
 vehwgt_extreme_count <- nrow(vehwgt_extreme_df)
 # count: 194
 vehwgt_extreme_count / nrow(madymo_nhtsa_df) * 100
@@ -734,11 +802,178 @@ missing_values <- madymo_nhtsa_df %>%
 
 print(missing_values)
 
+# automatically select variables which are missing 5% or more as c()
+missing_vars <- madymo_nhtsa_df %>%
+  summarise_all(~ sum(is.na(.))) %>%
+  gather(variable, missing) %>%
+  filter(missing > nrow(madymo_nhtsa_df) * 0.05) %>%
+  arrange(desc(missing)) %>%
+  pull(variable)
 
-# TO DO: find missing randomness, make decisions for handling vars based on this
+# add HIC15_log to missing_vars for comparison
+missing_vars <- c(
+  missing_vars,
+  "HIC15_log"
+)
+
+
+# examine randomness of all applicable variables
+missing_results_df <- data.frame()
+for (i in 1:(length(missing_vars) - 1)) {
+  missing_test <- madymo_nhtsa_df %>%
+    select("HIC15_log", missing_vars[i])
+  # save datatype of variable
+  var_type <- class(madymo_nhtsa_df[[missing_vars[i]]])
+  print(paste("Missing test: ", missing_vars[i]))
+  results <- na.test(
+    missing_test,
+  p.digits = 3, 
+  digits = 3, 
+  alpha = 0.05)
+  # write results to dataframe missing_results_df
+  missing_results_df <- rbind(
+    missing_results_df,
+    data.frame(
+      Variable = missing_vars[i],
+      Type = var_type,
+      No.missing = results$result$little$no.incomplete,
+      Test.stat.X2 = results$result$little$statistic,
+      P_Value = results$result$little$pval,
+      MCAR = ifelse(results$result$little$pval < 0.05, "No", "Yes")
+    )
+  )
+}
+
+# print results of tests
+missing_results_df
+
+# store variables that are MCAR
+mcar_vars <- missing_results_df %>%
+  filter(MCAR == "Yes") %>%
+  pull(Variable)
+
+# store variables that are not MCAR
+not_mcar_cont_vars <- missing_results_df %>%
+  filter(MCAR == "No" & Type == "numeric") %>%
+  pull(Variable)
+
+
+# use ggplot2::geom_miss_point() to examine missingness for all continuous variables in not_mcar_vars against HIC15_log
+# create a list of ggplot objects
+ggplot_list <- list()
+for (i in 1:length(not_mcar_cont_vars)) {
+  ggplot_list[[i]] <- ggplot(madymo_nhtsa_df, aes(x = HIC15_log, y = .data[[not_mcar_cont_vars[i]]])) +
+    geom_miss_point() +
+    labs(
+      title = paste("Missingness for", not_mcar_cont_vars[i]), 
+      x = "HIC15_log", 
+      y = not_mcar_cont_vars[i]
+    ) +
+    theme_minimal()
+}
+# code is flexible for multiple variables, change ncol value for more graphs per line
+grid.arrange(grobs = ggplot_list, ncol = 1)
+
+
+# check for patterns in missingness with regression
+# create a missingness indicator for all vars in missing_vars
+for (i in 1:length(missing_vars)) {
+  madymo_nhtsa_df[[paste0(missing_vars[i], "_missing")]] <- ifelse(is.na(madymo_nhtsa_df[[missing_vars[i]]]), 1, 0)
+}
+
+# reestablish survey design object with new missingness variables
+survey_design <- svydesign(
+  id = ~PSU,
+  strata = ~PSUSTRAT,
+  weights = ~RATWGT,
+  data = madymo_nhtsa_df
+)
+
+
+# VEHWGT and BMI are significant in model (p < 0.05), however VEHWGT effect size is 0.0008 and BMI effect size is 0.0245.
+# despite small effect sizes, significance indicates they should be imputed 
+
+
+
+# no adverse conditions   0   18
+# rain                    1   12
+# sleet/hail              2   13 or 21
+# snow                    3   14 or 15
+# fog                     4   11
+# rain and fog            5   
+# sleet and fog           6   
+# other                   7   98
+# unknown                 .U  .U
+  
+  
+  
+# check variables that are significant in model
+# VEHWGT
+# t.test(VEHWGT ~ WEATHER_missing, data = madymo_nhtsa_df)
+# wilcox.test(VEHWGT ~ WEATHER_missing, data = madymo_nhtsa_df)
+
+# BMI
+# t.test(BMI ~ WEATHER_missing, data = madymo_nhtsa_df)
+# wilcox.test(BMI ~ WEATHER_missing, data = madymo_nhtsa_df)
+
+# test to check BMI compared to PSU
+# cliff.delta(PSU ~ WEATHER_missing, data = madymo_nhtsa_df)
+
+
+# fit logistic regression to predict missingness of BMI using several covariates to make sure no associations are missed
+missing_model <- svyglm(
+  BMI_missing ~ ALCINV + HIPR + SEX_BIN + AGE + DV_MPH + VEHWGT + BAGDEPLOY_BIN + BELTUSE_BIN, 
+  data = madymo_nhtsa_df, 
+  family = quasibinomial,
+  design = survey_design)
+summary(missing_model)
+# model suggests that the more missing BMI is, the less alcohol is involved (makes sense that vitals would be taken more often if someone is arrested for DUI)
+# THIS COUNTS AS BIAS - WRITE THIS IN THE REPORT!
+
+
+# fit logistic regression to predict missingness of ALCINV
+missing_model <- svyglm(
+  ALCINV_missing ~ BMI + HIPR + SEX_BIN + AGE + DV_MPH + VEHWGT + BAGDEPLOY_BIN + BELTUSE_BIN, 
+  data = madymo_nhtsa_df, 
+  family = quasibinomial,
+  design = survey_design)
+summary(missing_model)
+# no significance in this model, suggesting missing at random
+```
+
+```{r define kept columns}
+# before beginning resource-intensive multiple imputation, make sure to only keep relevant columns
+columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DEATH", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "VEHTYPE", "HIC15", "HIC15_log")
+
+# select only relevant columns
+madymo_nhtsa_df <- madymo_nhtsa_df %>%
+  select(
+    all_of(columns_final))
+```
+
+
+
+```{r multiple imputation, eval=FALSE}
+# multiple imputation to take care of remaining missingness
+# specify variables to not be included in imputation (1 = use in imputation)
+pred <- make.predictorMatrix(madymo_nhtsa_df)
+pred[, "ID"] <- 0
+
+# Run MICE
+imputed_data <- mice(madymo_nhtsa_df, predictorMatrix = pred, m = 5)
+
+# check distribution of observed vs. imputed data
+densityplot(imputed_data, ~ BMI + ALCINV)
+
+
+# write madymo_nhtsa_df to csv with vroom
+vroom::vroom_write(madymo_nhtsa_df, file = file.path("data", "madymo_nhtsa_df_mice.csv"))
 ```
 
 ```{r baseline descriptives}
+# load madymo_nhtsa_df with vroom
+madymo_nhtsa_df <- vroom::vroom(file.path("data", "madymo_nhtsa_df_mice.csv"))
+
 # Create cases and controls data frames
 cases_df <- madymo_nhtsa_df %>% filter(HIPR == 1)
 controls_df <- madymo_nhtsa_df %>% filter(HIPR == 0)
@@ -1037,7 +1272,7 @@ survey_model <- svyglm(
     # BODYTYPE +
     # ALCINV +
     # DEATH +
-    # DRUGS +
+    # DRGINV +
     # MAKE +
     MODELYR +
     VEHWGT +
@@ -1373,7 +1608,7 @@ sd(madymo_nhtsa_df$HIC15, na.rm = TRUE)
 ggplot(madymo_nhtsa_df, aes(x = HIC15)) +
   geom_histogram(binwidth = 100) +
   labs(title = "Distribution of HIC15 Values", x = "HIC15", y = "Frequency")
-# doesn't give much useful information except that it has a skewed distribution
+# doesn"t give much useful information except that it has a skewed distribution
 
 # sensitivity and specificity of HIC15 vs HIPR
 # calculate sensitivity and specificity
@@ -1501,14 +1736,14 @@ library(DiagrammeR)
 grViz("
 digraph DAG {
   # Nodes (entities)
-  node [shape = rectangle, style = filled, fillcolor = 'lightblue']
-  HIC15 [label = 'MADYMO HIC15'];
-  HeadInjury [label = 'Real-World Head Injury'];
+  node [shape = rectangle, style = filled, fillcolor = "lightblue"]
+  HIC15 [label = "MADYMO HIC15"];
+  HeadInjury [label = "Real-World Head Injury"];
   
-  node [fillcolor = 'lightyellow']
+  node [fillcolor = "lightyellow"]
   seat_position; seatbelt_use; airbag_deployment; delta_V;
   
-  node [fillcolor = 'lightpink']
+  node [fillcolor = "lightpink"]
   Age; Sex; BMI;
   
   # Edges (relationships)
