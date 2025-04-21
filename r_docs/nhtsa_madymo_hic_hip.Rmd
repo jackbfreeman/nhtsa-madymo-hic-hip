@@ -780,15 +780,15 @@ summary(survey_model_extreme_adjusted)
 
 
 # use model eval function on both models
-model_eval_full <- model_eval(
-  survey_design_before_extreme_adjustment, 
-  survey_model_full
-)
-
-model_eval_extreme_adjusted <- model_eval(
-  survey_design, 
-  survey_model_extreme_adjusted
-)
+# model_eval_full <- model_eval(
+#   survey_design_before_extreme_adjustment, 
+#   survey_model_full
+# )
+# 
+# model_eval_extreme_adjusted <- model_eval(
+#   survey_design, 
+#   survey_model_extreme_adjusted
+# )
 
 ```
 
@@ -943,7 +943,7 @@ summary(missing_model)
 
 ```{r define kept columns}
 # before beginning resource-intensive multiple imputation, make sure to only keep relevant columns
-columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DEATH", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "VEHTYPE", "HIC15", "HIC15_log")
+columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "VEHTYPE", "HIC15", "HIC15_log")
 
 # select only relevant columns
 madymo_nhtsa_df <- madymo_nhtsa_df %>%
@@ -957,7 +957,7 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
 # multiple imputation to take care of remaining missingness
 # specify variables to not be included in imputation (1 = use in imputation)
 pred <- make.predictorMatrix(madymo_nhtsa_df)
-pred[, "ID"] <- 0
+pred[, c("ID", "PSU", "PSUSTRAT", "RATWGT", "YEAR", "MAKE", "HIC15")] <- 0
 
 # Run MICE
 imputed_data <- mice(madymo_nhtsa_df, predictorMatrix = pred, m = 5)
@@ -965,14 +965,24 @@ imputed_data <- mice(madymo_nhtsa_df, predictorMatrix = pred, m = 5)
 # check distribution of observed vs. imputed data
 densityplot(imputed_data, ~ BMI + ALCINV)
 
+# save imputed_data to file
+saveRDS(imputed_data, file = file.path("data", "imputed_data.rds"))
+
+# bring imputed data back to original dataset
+madymo_nhtsa_df_imp <- complete(imputed_data, action = "long", include = TRUE)
+
+madymo_nhtsa_df_imp2 <- complete(imputed_data, "all")
 
 # write madymo_nhtsa_df to csv with vroom
-vroom::vroom_write(madymo_nhtsa_df, file = file.path("data", "madymo_nhtsa_df_mice.csv"))
+vroom::vroom_write(madymo_nhtsa_df_imp, file = file.path("data", "madymo_nhtsa_df_mice.csv"))
 ```
 
 ```{r baseline descriptives}
-# load madymo_nhtsa_df with vroom
-madymo_nhtsa_df <- vroom::vroom(file.path("data", "madymo_nhtsa_df_mice.csv"))
+# load imputed_data
+imputed_data <- readRDS(file = file.path("data", "imputed_data.rds"))
+
+# load madymo_nhtsa_df_imp
+madymo_nhtsa_df_imp <- vroom::vroom(file.path("data", "madymo_nhtsa_df_mice.csv"))
 
 # Create cases and controls data frames
 cases_df <- madymo_nhtsa_df %>% filter(HIPR == 1)
@@ -1082,22 +1092,208 @@ print(baseline_descriptives)
 # define multivariate variable groups
 occ_vars <- c("SEX", "AGE", "BMI")
 env_vars <- c("WEATHER", "MAKE", "MODELYR", "VEHWGT")
-madymo_vars <- c("DV_MPH", "SEATPOS", "BELTUSE_BIN", "BAGDEPLOY_BIN")
+sim_vars <- c("DV_MPH", "SEATPOS", "BELTUSE_BIN", "BAGDEPLOY_BIN")
 ```
 
+```{r new functions for imputed survey model evaluation}
+# function to print and examine ROC curve, AUC, and other metrics
+roc_weighted_fun <- function(design, model) {
+  # Pool results (as before)
+  model_pooled <- pool(model)
+  
+  # Extract fitted values from each imputation
+  fitted_per_imputation <- lapply(model$analyses, fitted)
+  
+  # Average across imputations
+  average_fitted <- rowMeans(do.call(cbind, fitted_per_imputation))
+  
+  # Extract required components from survey design
+  roc_data <- data.frame(
+    y = design$variables$HIPR,
+    phat = average_fitted,
+    weights = design$variables$RATWGT
+  )
 
+  
+  # Create weighted ROC object
+  mycurve <- wroc(
+    response.var = "y",
+    phat.var = "phat",
+    weights.var = "weights",
+    data = roc_data,
+    tag.event = levels(roc_data$y)[2],
+    tag.nonevent = levels(roc_data$y)[1],
+    cutoff.method = "Youden"
+  )
+  
+  # Calculate prevalence of the event
+  event_level <- levels(roc_data$y)[2]
+  prevalence <- sum(roc_data$weights[roc_data$y == event_level]) / sum(roc_data$weights)
+    
+  # browser()
+  
+  # Extract performance metrics
+  metrics_list <- list(
+    AUC = mycurve$wauc,
+    Optimal_Cutoff = mycurve$optimal.cutoff$cutoff.value,
+    Sensitivity = mycurve$optimal.cutoff$Sew,
+    Specificity = mycurve$optimal.cutoff$Spw,
+    # PPV
+    PPV = 100 * ((mycurve$optimal.cutoff$Sew * prevalence) / 
+                   ((mycurve$optimal.cutoff$Sew * prevalence) + 
+                      ((1 - mycurve$optimal.cutoff$Spw) * (1 - prevalence))))
+  )
+  
+  # Generate plot
+  roc_plot <- wroc.plot(
+    x = mycurve,
+    print.auc = TRUE,
+    print.cutoff = TRUE
+  )
+  
+  # Return both plot and metrics
+  return(list(
+    mycurve = mycurve,
+    metrics = metrics_list
+  ))
+}
+
+
+# function for full model performance evaluation
+model_eval <- function(design, model) {
+  roc_weighted_fun(
+    design = design,
+    model = model
+  )
+}
+```
 
 ```{r univariate logistic regression}
-# univariate logistic regression
+# univariate logistic regression (with multiply imputed data)
 # examine correlation between DV_MPH and HIC15
+fit_univariate <- with(imputed_data, svyglm(
+  HIPR ~ HIC15_log,
+  data = madymo_nhtsa_df, 
+  family = quasibinomial,
+  design = survey_design))
+summary(pool(fit_univariate))
 ```
 
+```{r multivariate models}
+# example maximal model to build from
+# Fit multivariate model across imputations
+fit_multivariate_max <- lapply(madymo_nhtsa_df_imp2, function(df) {current_design <- svydesign(
+    id = ~PSU,
+    strata = ~PSUSTRAT,
+    weights = ~RATWGT,
+    data = df  # Use the current imputed dataset
+  )
+  
+  svyglm(
+    HIPR ~ HIC15_log + SEX_BIN + AGE + BMI + ALCINV + DRGINV + 
+      VEHWGT + MODELYR + TIME + VEHTYPE + DV_MPH + BAGDEPLOY_BIN + 
+      BELTUSE_BIN + SEATPOS,
+    family = quasibinomial,
+    design = current_design
+  )
+})
+
+# Check HIPR values in imputed data
+# summary(imputed_data$imp$HIPR)
+
+# If HIPR has non-binary values, re-impute using binary imputation:
+# mice_control <- mice(
+#   madymo_nhtsa_df,
+#   method = "logreg",  # Use logistic regression for binary variables
+#   m = 5
+# )
+
+# Convert to "mira" object (required for mice::pool)
+fit_multivariate_max <- as.mira(fit_multivariate_max)
+summary(pool(fit_multivariate_max))
+
+# check missingness of fit_multivariate_max[["analyses"]][["1"]][["data"]]
+missing_values <- fit_multivariate_max[["analyses"]][["1"]][["data"]] %>%
+  summarise_all(~ sum(is.na(.))) %>%
+  gather(variable, missing) %>%
+  filter(missing > 0) %>%
+  arrange(desc(missing))
+
+print(missing_values)
+
+
+
+
+
+
+
+
+# adjust these once main model is figured out
+
+
+# model including occupant variables
+fit_multivariate_occ <- with(imputed_data, svyglm(
+  HIPR ~ HIC15_log + 
+    SEX_BIN + AGE + BMI,
+  data = madymo_nhtsa_df, 
+  family = quasibinomial,
+  design = survey_design))
+summary(pool(fit_multivariate_occ))
+
+# model including environment variables
+fit_multivariate_env <- with(imputed_data, svyglm(
+  HIPR ~ HIC15_log + 
+    ALCINV + DRGINV + VEHWGT + MODELYR + TIME + VEHTYPE,
+  data = madymo_nhtsa_df, 
+  family = quasibinomial,
+  design = survey_design))
+summary(pool(fit_multivariate_env))
+
+# model including simulation variables
+fit_multivariate_sim <- with(imputed_data, svyglm(
+  HIPR ~ HIC15_log + 
+    DV_MPH + BAGDEPLOY_BIN + BELTUSE_BIN + DV_MPH + SEATPOS,
+  data = madymo_nhtsa_df, 
+  family = quasibinomial,
+  design = survey_design))
+summary(pool(fit_multivariate_sim))
+```
+
+```{r build model_eval objects}
+fit_univariate_eval <- model_eval(
+  survey_design, 
+  fit_univariate
+)
+
+fit_multivariate_occ_eval <- model_eval(
+  survey_design, 
+  fit_multivariate_occ
+)
+
+fit_multivariate_env_eval <- model_eval(
+  survey_design, 
+  fit_multivariate_env
+)
+
+fit_multivariate_sim_eval <- model_eval(
+  survey_design, 
+  fit_multivariate_sim
+)
+
+fit_multivariate_max_eval <- model_eval(
+  survey_design, 
+  fit_multivariate_max
+)
+```
 
 
 ```{r comparing model performance}
 compared_models <- c(
-  "model_eval_full", 
-  "model_eval_extreme_adjusted")
+  "fit_univariate", 
+  "fit_multivariate_occ",
+  "fit_multivariate_env",
+  "fit_multivariate_sim",
+  "fit_multivariate_max")
 
 # compare models in dataframe using loop
 comparison_df <- data.frame()
