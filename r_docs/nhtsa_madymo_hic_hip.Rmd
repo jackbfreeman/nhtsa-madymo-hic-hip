@@ -28,7 +28,6 @@ knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 data_path_2000_2015 <- file.path("data", "NHTSA_databases", "NHTSA All files")
 ```
 
-
 ```{r get MADYMO HIC values and build MADYMO dataframe, eval=FALSE}
 # create dataframe with MADYMO data
 BELTUSE_BIN <- c(0, 1)
@@ -256,7 +255,6 @@ vroom::vroom_write(MADYMO_df, file = file.path("data", "MADYMO_df.csv"))
 
 ```
 
-
 ```{r create nhtsa dataframe, eval=FALSE}
 # Helper function to process data for each year
 vehicle_count <- 0
@@ -408,7 +406,6 @@ vroom::vroom_write(nhtsa_combined_df, file = file.path("data", "nhtsa_combined_d
 
 ```
 
-
 ```{r clean and filter nhtsa dataframe}
 # read nhtsa_combined_df.csv with vroom
 nhtsa_combined_df <- vroom::vroom(file.path("data", "nhtsa_combined_df_saved.csv"))
@@ -435,18 +432,29 @@ nhtsa_combined_df <- nhtsa_combined_df %>%
       )
     ),
     # match WEATHER codes
+    #     name           WEATHER  CLIMATE
+    # no adverse conditions   0   18, 19 (cloudy)
+    # rain                    1   12
+    # sleet/hail              2   13 or 21
+    # snow                    3   14 or 15
+    # fog                     4   11
+    # rain and fog            5   
+    # sleet and fog           6   
+    # other                   7   98
+    # unknown                 .U  .U
     WEATHER = ifelse(
-      WEATHER == 18, 0, 
+      WEATHER %in% c(18, 19), 0, 
       ifelse(
         WEATHER == 12, 1,
         ifelse(
-          WEATHER == 13 | WEATHER == 21, 2,
+          WEATHER %in% c(13, 20, 21), 2,
           ifelse(
             WEATHER == 14 | WEATHER == 15, 3,
             ifelse(
-              WEATHER == 7, 98,
+              WEATHER %in% c(98, 16), 7,
               ifelse(
-                WEATHER == 98, 7, WEATHER
+                WEATHER == 11, 4,
+                WEATHER
               )))))),
     # BODYTYPE values > 20 have no VEHWGT (as taken from VIN) so this pairs them with Gross Vehicle Weight Rating (GVWR) using WGTCDTR variable
     VEHWGT = ifelse(
@@ -530,7 +538,6 @@ sort(colnames(nhtsa_combined_df))
 summary(explore_df)
 ```
 
-
 ```{r keep only relevant columns}
 # columns that will be kept in final dataset
 cols_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "DVEST", "AIS1", "MAIS", "OCCNO", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "DV_MPH_BIN", "HEIGHT", "WEIGHT", "PSU", "PSUSTRAT", "RATWGT", "BODYTYPE", "ALCINV", "DEATH", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "VEHTYPE")
@@ -544,8 +551,7 @@ print(paste("all years (after filter):", nrow(nhtsa_combined_df)))
 
 ```
 
-
-```{r join MADYMO data and add transform vars}
+```{r join MADYMO data}
 # exclude NA values for some variables
 # nhtsa_combined_df <- nhtsa_combined_df %>%
 #   subset(
@@ -563,7 +569,37 @@ MADYMO_df$BAGDEPLOY_BIN <- as.factor(MADYMO_df$BAGDEPLOY_BIN)
 # join MADYMO data to NHTSA dataframe
 madymo_nhtsa_df <- nhtsa_combined_df %>%
   left_join(MADYMO_df, by = join_by(DV_MPH == DVTOTAL, SEATPOS == SEATPOS, BELTUSE_BIN == BELTUSE_BIN, BAGDEPLOY_BIN == BAGDEPLOY_BIN))
+```
 
+```{r visualize HIC15 and DV_MPH relationship, eval=FALSE}
+
+# scatterplot of HIC15_thousand (10,000 scale) and DV_MPH to see relationship
+ggplot(madymo_nhtsa_df, aes(y = HIC15, x = DV_MPH)) +
+  geom_point() +
+  labs(title = "Scatterplot of HIC15 and DV_MPH", y = "HIC15 (transformed)", x = "DV_MPH") + 
+  # y axis to 65
+  scale_y_continuous(limits = c(0, 60000))
+
+
+# scatterplot of HIC15_sqrt and DV_MPH because above relationship was nonlinear
+ggplot(madymo_nhtsa_df, aes(y = sqrt(HIC15), x = DV_MPH)) +
+  geom_point() +
+  labs(title = "Scatterplot of sqrt(HIC15) and DV_MPH", y = "sqrt(HIC15) (transformed)", x = "DV_MPH") + 
+  # y axis to 65
+  scale_y_continuous(limits = c(0, 40))
+
+
+# scatterplot of HIC15_log and DV_MPH because above relationship was nonlinear
+ggplot(madymo_nhtsa_df, aes(y = log(HIC15), x = DV_MPH)) +
+  geom_point() +
+  labs(title = "Scatterplot of log(HIC15) and DV_MPH", y = "log(HIC15) (transformed)", x = "DV_MPH") + 
+  # y axis to 65
+  scale_y_continuous(limits = c(0, 12)) +
+  # draw regression line
+  geom_smooth(method = "lm")
+```
+
+```{r add HIC15 transform vars}
 # transform/scale HIC15 to see if numbers are more legible
 madymo_nhtsa_df$HIC15_thousand <-
   madymo_nhtsa_df$HIC15/1000
@@ -682,8 +718,21 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
 
 ```{r functions for survey model evaluation}
 # function to print and examine ROC curve, AUC, and other metrics
-roc_weighted_fun <- function(design, model) {
+model_eval_fun <- function(formula = "HIPR ~ HIC15_log", data = madymo_nhtsa_df) {
   # Extract required components from survey design
+ design <- svydesign(
+    id = ~PSU,
+    strata = ~PSUSTRAT,
+    weights = ~RATWGT,
+    data = data
+  )
+ 
+  model <- svyglm(
+  as.formula(formula),
+  design = design,
+  family = quasibinomial
+ )
+  
   roc_data <- data.frame(
     y = design$variables$HIPR,
     phat = fitted(model),
@@ -714,10 +763,11 @@ roc_weighted_fun <- function(design, model) {
     Optimal_Cutoff = mycurve$optimal.cutoff$cutoff.value,
     Sensitivity = mycurve$optimal.cutoff$Sew,
     Specificity = mycurve$optimal.cutoff$Spw,
-    # PPV
-    PPV = 100 * ((mycurve$optimal.cutoff$Sew * prevalence) / 
-                   ((mycurve$optimal.cutoff$Sew * prevalence) + 
-                      ((1 - mycurve$optimal.cutoff$Spw) * (1 - prevalence))))
+    Correlation = cor(as.numeric(roc_data$y), roc_data$phat, use = "pairwise.complete.obs")
+    # PPV - excluding because low prevalence makes PPV low
+    # PPV = 100 * ((mycurve$optimal.cutoff$Sew * prevalence) / 
+    #                ((mycurve$optimal.cutoff$Sew * prevalence) + 
+    #                   ((1 - mycurve$optimal.cutoff$Spw) * (1 - prevalence))))
   )
   
   # Generate plot
@@ -730,69 +780,67 @@ roc_weighted_fun <- function(design, model) {
   # Return both plot and metrics
   return(list(
     mycurve = mycurve,
-    metrics = metrics_list
+    metrics = metrics_list,
+    model = model
   ))
 }
 
 
-# function for full model performance evaluation
-model_eval <- function(design, model) {
-  roc_weighted_fun(
-    design = design,
-    model = model
-  )
+# function to compare models in dataframe using loop
+compare_df_fun <- function(models) {
+  comparison_df <- data.frame()
+  for (model in models) {
+    # Extract the AUC and other metrics
+    # β <- get(model)$model$coefficients
+    auc <- get(model)$metrics$AUC
+    optimal_cutoff <- get(model)$metrics$Optimal_Cutoff
+    sensitivity <- get(model)$metrics$Sensitivity
+    specificity <- get(model)$metrics$Specificity
+    correlation <- get(model)$metrics$Correlation
+    # PPV <- get(model)$metrics$PPV
+    
+    # Create a new row for the comparison dataframe
+    new_row <- data.frame(
+      Model = model,
+      
+      AUC = auc,
+      Optimal_Cutoff = optimal_cutoff,
+      # how to interpret results as cutoff of injury for HIC15
+      # Optimal_Cutoff_log = (optimal_cutoff),
+      Sensitivity = sensitivity,
+      Specificity = specificity,
+      Correlation = correlation
+    )
+    
+    # Append the new row to the comparison dataframe
+    comparison_df <- rbind(comparison_df, new_row)
+  }
+  return(comparison_df)
 }
 ```
 
-
-```{r survey model definition}
-# build survey design object before adjust extreme values
-survey_design_before_extreme_adjustment <- svydesign(
-  id = ~PSU,
-  strata = ~PSUSTRAT,
-  weights = ~RATWGT,
+```{r compare extreme adjustments, eval=FALSE}
+# create two models, one before extreme adjustment (madymo_nhtsa_df_full) and one after (updated madymo_nhtsa_df)
+# use model_eval_fun function on both models to create ROC curves and AUC
+model_eval_full <- model_eval_fun(
+  formula = "HIPR ~ HIC15_log",
   data = madymo_nhtsa_df_full
 )
 
-# build survey design object after adjust extreme values
-survey_design <- svydesign(
-  id = ~PSU,
-  strata = ~PSUSTRAT,
-  weights = ~RATWGT,
+model_eval_extreme_adjusted <- model_eval_fun(
+  formula = "HIPR ~ HIC15_log",
   data = madymo_nhtsa_df
 )
 
-# survey logistic model before adjusting extreme values
-survey_model_full <- svyglm(
-  HIPR ~ HIC15_log,
-  design = survey_design_before_extreme_adjustment,
-  family = quasibinomial
- )
-summary(survey_model_full)
+# compare model_eval_fun results
+comp <- c(
+  "model_eval_full",
+  "model_eval_extreme_adjusted")
 
-# survey logistic model after adjusting extreme values
-survey_model_extreme_adjusted <- svyglm(
-  HIPR ~ HIC15_log,
-  design = survey_design,
-  family = quasibinomial
- )
-summary(survey_model_extreme_adjusted)
-
-
-# use model eval function on both models
-# model_eval_full <- model_eval(
-#   survey_design_before_extreme_adjustment, 
-#   survey_model_full
-# )
-# 
-# model_eval_extreme_adjusted <- model_eval(
-#   survey_design, 
-#   survey_model_extreme_adjusted
-# )
-
+compare_df_fun(comp)
 ```
 
-```{r examine missingness and extreme values}
+```{r examine missingness, eval=FALSE}
 # examine missingness
 missing_values <- madymo_nhtsa_df %>%
   summarise_all(~ sum(is.na(.))) %>%
@@ -892,19 +940,6 @@ survey_design <- svydesign(
 
 # VEHWGT and BMI are significant in model (p < 0.05), however VEHWGT effect size is 0.0008 and BMI effect size is 0.0245.
 # despite small effect sizes, significance indicates they should be imputed 
-
-
-
-# no adverse conditions   0   18
-# rain                    1   12
-# sleet/hail              2   13 or 21
-# snow                    3   14 or 15
-# fog                     4   11
-# rain and fog            5   
-# sleet and fog           6   
-# other                   7   98
-# unknown                 .U  .U
-  
   
   
 # check variables that are significant in model
@@ -951,7 +986,250 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
     all_of(columns_final))
 ```
 
+```{r remove missing values listwise}
+# remove all individuals who have any missing variables
+madymo_nhtsa_df_listwise <- madymo_nhtsa_df %>%
+  filter(complete.cases(.))
 
+# check missingness
+missing_values <- madymo_nhtsa_df_listwise %>%
+  summarise_all(~ sum(is.na(.))) %>%
+  gather(variable, missing) %>%
+  filter(missing > 0) %>%
+  arrange(desc(missing))
+print(missing_values)
+```
+
+```{r listwise models removed missings}
+# univariate model
+univariate_model_listwise <- model_eval_fun(
+  formula = "HIPR ~ HIC15_log",
+  data = madymo_nhtsa_df_listwise
+)
+summary(univariate_model_listwise$model)
+
+
+# OCCUPANT VARIABLES model
+
+# define occupant variables
+occ_vars <- c("SEX_BIN", "AGE", "BMI")
+
+# # stepwise multivariate regression model building; delete highest p-value from model until only significant variables remain
+# multivariate_model_listwise_occ <- model_eval_fun(
+#   formula = paste(
+#     "HIPR ~", 
+#     paste(
+#       c("HIC15_log", occ_vars), collapse = " + ")),
+#   data = madymo_nhtsa_df_listwise
+# )
+# summary(multivariate_model_listwise_occ$model)
+# 
+# # SEX_BIN is 1 in occ_vars, run model without that
+# multivariate_model_listwise_occ <- model_eval_fun(
+#   formula = paste(
+#     "HIPR ~", 
+#     paste(
+#       c("HIC15_log", occ_vars[-1]), collapse = " + ")),
+#   data = madymo_nhtsa_df_listwise
+# )
+# summary(multivariate_model_listwise_occ$model)
+
+# AGE is 2 in occ_vars, run model without 1 and 2
+multivariate_model_listwise_occ <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)]), collapse = " + ")),
+data = madymo_nhtsa_df_listwise)
+summary(multivariate_model_listwise_occ$model)
+
+
+# ENVIRONMENT VARIABLES model
+
+# define env_vars
+env_vars <- c("WEATHER", "MAKE", "MODELYR", "VEHWGT", "TIME", "VEHTYPE")
+# exclude MAKE from vars - too many levels, results in NaN p values because insufficient df
+env_vars <- env_vars[-2]
+
+# multivariate_model_listwise_env <- model_eval_fun(
+#   formula = paste("HIPR ~ HIC15_log + ", paste(env_vars, collapse = " + ")),
+#   data = madymo_nhtsa_df_listwise
+# )
+# summary(multivariate_model_listwise_env$model)
+# 
+# # remove MODELYR
+# multivariate_model_listwise_env <- model_eval_fun(
+#   formula = paste("HIPR ~ HIC15_log + ", paste(env_vars[-2], collapse = " + ")),
+#   data = madymo_nhtsa_df_listwise
+# )
+# summary(multivariate_model_listwise_env$model)
+# 
+# # remove VEHWGT
+# multivariate_model_listwise_env <- model_eval_fun(
+#   formula = paste("HIPR ~ HIC15_log + ", paste(env_vars[c(-2, -3)], collapse = " + ")),
+#   data = madymo_nhtsa_df_listwise
+# )
+# summary(multivariate_model_listwise_env$model)
+# 
+# # remove VEHTYPE
+# multivariate_model_listwise_env <- model_eval_fun(
+#   formula = paste("HIPR ~ HIC15_log + ", paste(env_vars[c(-2, -3, -5)], collapse = " + ")),
+#   data = madymo_nhtsa_df_listwise
+# )
+# summary(multivariate_model_listwise_env$model)
+# 
+# # remove TIME
+# multivariate_model_listwise_env <- model_eval_fun(
+#   formula = paste("HIPR ~ HIC15_log + ", paste(env_vars[c(-2, -3, -4, -5)], collapse = " + ")),
+#   data = madymo_nhtsa_df_listwise
+# )
+# summary(multivariate_model_listwise_env$model)
+
+
+# # split weather by 6 or not-6
+# madymo_nhtsa_df_sleetfog <- madymo_nhtsa_df_listwise %>%
+#   filter(WEATHER == 6)
+# # only 2 entries with sleetfog
+# 
+# # split weather by 6 or not-6
+# madymo_nhtsa_df_not_sleetfog <- madymo_nhtsa_df_listwise %>%
+#   filter(WEATHER != 6)
+
+
+# models with sleetfog, without sleetfog
+# multivariate_model_listwise_env_sleetfog <- model_eval_fun(
+#   formula = paste(
+#     "HIPR ~", 
+#     paste(
+#       c("HIC15_log", env_vars[c(-2, -3, -4, -5)]), collapse = " + ")),
+#   data = madymo_nhtsa_df_sleetfog
+# )
+# summary(multivariate_model_listwise_env_sleetfog$model)
+
+# impossible because only 2 entries
+
+
+# compare_df_fun( <- model_eval_fun(
+#   survey_design_listwise,
+#   multivariate_model_listwise_env_sleetfog
+# )
+
+
+# multivariate_model_listwise_env_not_sleetfog <- model_eval_fun(
+#   formula = paste(
+#     "HIPR ~", 
+#     paste(
+#       c("HIC15_log", env_vars[c(-2, -3, -4, -5)]), collapse = " + ")),
+#   data = madymo_nhtsa_df_not_sleetfog
+# )
+# summary(multivariate_model_listwise_env_not_sleetfog$model)
+# 
+# sleetfog_vs_full_model_comparison <- compare_df_fun(
+#   c(
+#     "multivariate_model_listwise_env",
+#     "multivariate_model_listwise_env_not_sleetfog"
+#   ))
+# print(sleetfog_vs_full_model_comparison)
+
+
+
+# BEGIN WEATHER6 SIGNFICANCE ANALYSIS
+# 
+# # the following significance is collaboration with deepseek to investigate appropriateness of including WEATHER == 6 in the final model because it is only 2 observations and they are very significant
+# tidy_full <- tidy(multivariate_model_listwise_env$model)
+# tidy_subset <- tidy(multivariate_model_listwise_env_not_sleetfog$model)
+# 
+# coef_compare <- merge(tidy_full, tidy_subset, by = "term", suffixes = c("_full", "_subset"))
+# coef_compare[, c("term", "estimate_full", "estimate_subset", "std.error_full", "std.error_subset")]
+# 
+# tidy(multivariate_model_listwise_env$model) |> filter(term == "WEATHER6")
+# # "The coefficient for WEATHER == 6 (β = 12.7, se = 1.04, p = 0.00000564) is based on only two observations and should be interpreted with extreme caution."
+
+# END WEATHER6 SIGNFICANCE ANALYSIS
+
+
+
+# remove WEATHER (now same as univariate)
+multivariate_model_listwise_env <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", env_vars[c(-1, -2, -3, -4, -5)]), collapse = " + ")
+  ),
+  data = madymo_nhtsa_df_listwise
+)
+
+
+
+
+# SIMULATION VARIABLES model
+sim_vars <- c("DV_MPH", "SEATPOS", "BELTUSE_BIN", "BAGDEPLOY_BIN")
+
+# multivariate_model_listwise_sim <- model_eval_fun(
+#   formula = paste("HIPR ~ HIC15_log + ", paste(sim_vars, collapse = " + ")),
+#   data = madymo_nhtsa_df_listwise
+# )
+# summary(multivariate_model_listwise_sim$model)
+# 
+# # remove BAGDEPLOY_BIN
+# multivariate_model_listwise_sim <- model_eval_fun(
+#   formula = paste("HIPR ~ HIC15_log + ", paste(sim_vars[-4], collapse = " + ")),
+#   data = madymo_nhtsa_df_listwise
+# )
+# summary(multivariate_model_listwise_sim$model)
+# 
+# remove SEATPOS
+multivariate_model_listwise_sim <- model_eval_fun(
+  formula = paste(
+    "HIPR ~",
+    paste(
+      c("HIC15_log", sim_vars[c(-4, -2)]), collapse = " + ")),
+  data = madymo_nhtsa_df_listwise
+)
+summary(multivariate_model_listwise_sim$model)
+# 
+# 
+# 
+# # FINAL MODEL
+# 
+# multivariate_model_listwise_final <- model_eval_fun(
+#   formula = paste(
+#     "HIPR ~", 
+#     paste(
+#       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2)]), collapse = " + ")),
+#   data = madymo_nhtsa_df_listwise
+# )
+# summary(multivariate_model_listwise_final$model)
+
+# BELTUSE becomes only marginally insignificant (0.6) when BMI is introduced. what does this mean??
+
+# remove BELTUSE_BIN
+multivariate_model_listwise_final <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = madymo_nhtsa_df_listwise
+)
+summary(multivariate_model_listwise_final$model)
+
+
+
+
+```
+
+```{r compare non-imputed models}
+# compare model_eval_fun results
+comp <- c(
+  "univariate_model_listwise",
+  "multivariate_model_listwise_occ",
+  "multivariate_model_listwise_env",
+  "multivariate_model_listwise_sim",
+  "multivariate_model_listwise_final")
+
+models_listwise_comparison_df <- compare_df_fun(comp)
+print(models_listwise_comparison_df)
+```
 
 ```{r multiple imputation, eval=FALSE}
 # multiple imputation to take care of remaining missingness
@@ -968,11 +1246,6 @@ densityplot(imputed_data, ~ BMI + ALCINV)
 # save imputed_data to file
 saveRDS(imputed_data, file = file.path("data", "imputed_data.rds"))
 
-# bring imputed data back to original dataset
-madymo_nhtsa_df_imp <- complete(imputed_data, action = "long", include = TRUE)
-
-madymo_nhtsa_df_imp2 <- complete(imputed_data, "all")
-
 # write madymo_nhtsa_df to csv with vroom
 vroom::vroom_write(madymo_nhtsa_df_imp, file = file.path("data", "madymo_nhtsa_df_mice.csv"))
 ```
@@ -981,8 +1254,10 @@ vroom::vroom_write(madymo_nhtsa_df_imp, file = file.path("data", "madymo_nhtsa_d
 # load imputed_data
 imputed_data <- readRDS(file = file.path("data", "imputed_data.rds"))
 
-# load madymo_nhtsa_df_imp
-madymo_nhtsa_df_imp <- vroom::vroom(file.path("data", "madymo_nhtsa_df_mice.csv"))
+# bring imputed data back to original dataset
+madymo_nhtsa_df_imp <- complete(imputed_data, action = "long", include = TRUE)
+
+madymo_nhtsa_df_imp2 <- complete(imputed_data, "all")
 
 # Create cases and controls data frames
 cases_df <- madymo_nhtsa_df %>% filter(HIPR == 1)
@@ -1087,17 +1362,9 @@ print(baseline_descriptives)
 
 ```
 
-
-```{r define multivariate groups}
-# define multivariate variable groups
-occ_vars <- c("SEX", "AGE", "BMI")
-env_vars <- c("WEATHER", "MAKE", "MODELYR", "VEHWGT")
-sim_vars <- c("DV_MPH", "SEATPOS", "BELTUSE_BIN", "BAGDEPLOY_BIN")
-```
-
-```{r new functions for imputed survey model evaluation}
+```{r new functions for imputed multivariate survey model evaluation}
 # function to print and examine ROC curve, AUC, and other metrics
-roc_weighted_fun <- function(design, model) {
+roc_weighted_fun_multi <- function(design, model) {
   # Pool results (as before)
   model_pooled <- pool(model)
   
@@ -1158,20 +1425,67 @@ roc_weighted_fun <- function(design, model) {
   ))
 }
 
+# Assuming 'imputed_designs' is a list of survey designs from imputed_datasets
+imputed_designs <- lapply(madymo_nhtsa_df_imp2, function(dataset) {
+  svydesign(
+    ids = ~ PSU,
+    strata = ~ PSUSTRAT,
+    weights = ~ RATWGT,
+    data = dataset,
+    nest = TRUE
+  )
+})
 
 # function for full model performance evaluation
-model_eval <- function(design, model) {
-  roc_weighted_fun(
-    design = design,
-    model = model
+model_eval_imp <- function(model_list, imputed_designs = imputed_designs) {
+  # Average fitted values across imputations
+  fitted_per_imputation <- lapply(model_list, fitted)
+  average_fitted <- rowMeans(do.call(cbind, fitted_per_imputation))
+  
+  # Use the FIRST design (all imputed designs are structurally identical)
+  design <- imputed_designs[[1]]
+  
+  # Prepare ROC data
+  roc_data <- data.frame(
+    y = design$variables$HIPR,
+    phat = average_fitted,
+    weights = design$variables$RATWGT
   )
+  
+  # Create weighted ROC object
+  mycurve <- wroc(
+    response.var = "y",
+    phat.var = "phat",
+    weights.var = "weights",
+    data = roc_data,
+    tag.event = levels(roc_data$y)[2],
+    tag.nonevent = levels(roc_data$y)[1],
+    cutoff.method = "Youden"
+  )
+  
+  # Calculate prevalence
+  event_level <- levels(roc_data$y)[2]
+  prevalence <- sum(roc_data$weights[roc_data$y == event_level]) / sum(roc_data$weights)
+  
+  # Extract metrics
+  metrics_list <- list(
+    AUC = mycurve$wauc,
+    Optimal_Cutoff = mycurve$optimal.cutoff$cutoff.value,
+    Sensitivity = mycurve$optimal.cutoff$Sew,
+    Specificity = mycurve$optimal.cutoff$Spw,
+    PPV = 100 * ((mycurve$optimal.cutoff$Sew * prevalence) / 
+                   (mycurve$optimal.cutoff$Sew * prevalence + 
+                      (1 - mycurve$optimal.cutoff$Spw) * (1 - prevalence)))
+  )
+  
+  return(list(metrics = metrics_list))
 }
 ```
 
-```{r univariate logistic regression}
+```{r univariate imputed logistic regression model}
 # univariate logistic regression (with multiply imputed data)
 # examine correlation between DV_MPH and HIC15
-fit_univariate <- with(imputed_data, svyglm(
+fit_univariate_imp <- with(imputed_data, svyglm(
   HIPR ~ HIC15_log,
   data = madymo_nhtsa_df, 
   family = quasibinomial,
@@ -1179,53 +1493,61 @@ fit_univariate <- with(imputed_data, svyglm(
 summary(pool(fit_univariate))
 ```
 
-```{r multivariate models}
-# example maximal model to build from
+```{r multivariate imputed models}
+# temporarily on hold while building pre-imputation models
+
+# current state: starting at fit_multivariate_max_simple, uses old model building system
+# function that directly follows is most recent attempt to build a function that takes in string of formula and outputs results
+
+# maximal model to build from
 # Fit multivariate model across imputations
-fit_multivariate_max <- lapply(madymo_nhtsa_df_imp2, function(df) {current_design <- svydesign(
-    id = ~PSU,
-    strata = ~PSUSTRAT,
-    weights = ~RATWGT,
-    data = df  # Use the current imputed dataset
-  )
-  
-  svyglm(
-    HIPR ~ HIC15_log + SEX_BIN + AGE + BMI + ALCINV + DRGINV + 
-      VEHWGT + MODELYR + TIME + VEHTYPE + DV_MPH + BAGDEPLOY_BIN + 
-      BELTUSE_BIN + SEATPOS,
-    family = quasibinomial,
-    design = current_design
-  )
-})
+multi_imp_model_fun <- function(formula_as_text = "HIPR ~ HIC15_log") {
+  fits <- lapply(madymo_nhtsa_df_imp2, function(dataset) {
+    # Rebuild survey design for THIS imputed dataset
+    design_imp <- svydesign(
+      ids = ~ PSU,
+      strata = ~ PSUSTRAT,
+      weights = ~ RATWGT,
+      data = dataset,  # Explicitly use the imputed dataset
+      nest = TRUE
+    )
+    # Fit the model
+    svyglm(
+      as.formula(formula_as_text),
+      family = quasibinomial,
+      design = design_imp
+    )
+  })
+}
 
-# Check HIPR values in imputed data
-# summary(imputed_data$imp$HIPR)
+multi_results_fun <- function(formula_as_text = "HIPR ~ HIC15_log") {
+  model_list <- multi_imp_model_fun(formula_as_text)
+  pooled_results <- pool(model_list)
+  summary(pooled_results)
+}
 
-# If HIPR has non-binary values, re-impute using binary imputation:
-# mice_control <- mice(
-#   madymo_nhtsa_df,
-#   method = "logreg",  # Use logistic regression for binary variables
-#   m = 5
-# )
+
+# defaults to giving univariate model, argument can be another formula for other models
+# outputs table with results
+multi_results_fun()
+
+
 
 # Convert to "mira" object (required for mice::pool)
 fit_multivariate_max <- as.mira(fit_multivariate_max)
 summary(pool(fit_multivariate_max))
 
-# check missingness of fit_multivariate_max[["analyses"]][["1"]][["data"]]
-missing_values <- fit_multivariate_max[["analyses"]][["1"]][["data"]] %>%
-  summarise_all(~ sum(is.na(.))) %>%
-  gather(variable, missing) %>%
-  filter(missing > 0) %>%
-  arrange(desc(missing))
-
-print(missing_values)
 
 
-
-
-
-
+# simple form of maximal multivariate model
+fit_multivariate_max_simple <- with(imputed_data, svyglm(
+    HIPR ~ HIC15_log + SEX_BIN + AGE + BMI + ALCINV + DRGINV + 
+      VEHWGT + MODELYR + TIME + VEHTYPE + DV_MPH + BAGDEPLOY_BIN + 
+      BELTUSE_BIN + SEATPOS,
+    family = quasibinomial,
+    design = survey_design
+  ))
+summary(pool(fit_multivariate_max_simple))
 
 
 # adjust these once main model is figured out
@@ -1257,32 +1579,46 @@ fit_multivariate_sim <- with(imputed_data, svyglm(
   family = quasibinomial,
   design = survey_design))
 summary(pool(fit_multivariate_sim))
+
+
+
+# print all models in ascending complexity (for showing Maurice, with simple max model)
+summary(pool(fit_univariate))
+summary(pool(fit_multivariate_occ))
+summary(pool(fit_multivariate_env))
+summary(pool(fit_multivariate_sim))
+summary(pool(fit_multivariate_max_simple))
 ```
 
-```{r build model_eval objects}
-fit_univariate_eval <- model_eval(
+```{r build model_eval_fun objects}
+fit_univariate_eval <- model_eval_imp(
   survey_design, 
   fit_univariate
 )
 
-fit_multivariate_occ_eval <- model_eval(
+fit_multivariate_occ_eval <- model_eval_imp(
   survey_design, 
   fit_multivariate_occ
 )
 
-fit_multivariate_env_eval <- model_eval(
+fit_multivariate_env_eval <- model_eval_imp(
   survey_design, 
   fit_multivariate_env
 )
 
-fit_multivariate_sim_eval <- model_eval(
+fit_multivariate_sim_eval <- model_eval_imp(
   survey_design, 
   fit_multivariate_sim
 )
 
-fit_multivariate_max_eval <- model_eval(
+fit_multivariate_max_eval <- model_eval_imp(
   survey_design, 
   fit_multivariate_max
+)
+
+fit_multivariate_max_eval_simple <- model_eval_imp(
+  survey_design, 
+  fit_multivariate_max_simple
 )
 ```
 
@@ -1293,31 +1629,9 @@ compared_models <- c(
   "fit_multivariate_occ",
   "fit_multivariate_env",
   "fit_multivariate_sim",
-  "fit_multivariate_max")
+  "fit_multivariate_max_simple",)
 
-# compare models in dataframe using loop
-comparison_df <- data.frame()
-for (model in compared_models) {
-  # Extract the AUC and other metrics
-  auc <- get(model)$metrics$AUC
-  optimal_cutoff <- get(model)$metrics$Optimal_Cutoff
-  sensitivity <- get(model)$metrics$Sensitivity
-  specificity <- get(model)$metrics$Specificity
-  PPV <- get(model)$metrics$PPV
-  
-  # Create a new row for the comparison dataframe
-  new_row <- data.frame(
-    Model = model,
-    AUC = auc,
-    Optimal_Cutoff = optimal_cutoff,
-    Sensitivity = sensitivity,
-    Specificity = specificity,
-    PPV = PPV
-  )
-  
-  # Append the new row to the comparison dataframe
-  comparison_df <- rbind(comparison_df, new_row)
-}
+compare_df_fun(compared_models)
 ```
 
 
@@ -1446,87 +1760,7 @@ madymo_nhtsa_df$DV_MPH_high <- ifelse(madymo_nhtsa_df$DV_MPH < 50, 0, 1)
 madymo_nhtsa_df$DV_MPH_high <- as.factor(madymo_nhtsa_df$DV_MPH_high)
 ```
 
-```{r survey logistic model, eval=FALSE}
-# survey logistic model
-# create survey design object with RATWGT as weights, PSU as cluster, and PSUSTRAT as strata
-survey_design <- svydesign(
-  id = ~PSU,
-  strata = ~PSUSTRAT,
-  weights = ~RATWGT,
-  data = madymo_nhtsa_df
-)
 
-# survey logistic model - commented vars ruin model, might be NA-related. need to find a fix
-survey_model <- svyglm(
-  HIPR ~ HIC15_log + 
-    DV_MPH + 
-    BELTUSE_BIN + 
-    SEATPOS + 
-    BAGDEPLOY_BIN + 
-    AGE + 
-    BMI +
-    # BODYTYPE +
-    # ALCINV +
-    # DEATH +
-    # DRGINV +
-    # MAKE +
-    MODELYR +
-    VEHWGT +
-    WEATHER,
-  design = survey_design,
-  family = quasibinomial
- )
-summary(survey_model)
-
-#take out least significant vars in order
-survey_model <- svyglm(
-  HIPR ~ HIC15_log + 
-    DV_MPH + 
-    BELTUSE_BIN,
-  design = survey_design,
-  family = quasibinomial
- )
-summary(survey_model)
-
-
-
-survey_model <- svyglm(
-  HIPR ~ HIC15_log + 
-    DV_MPH_two + 
-    BELTUSE_BIN +
-    DV_MPH_two*HIC15_log,
-  design = survey_design,
-  family = quasibinomial
- )
-summary(survey_model)
-
-
-survey_model <- svyglm(
-  HIPR ~ HIC15_log + 
-    DV_MPH_three + 
-    BELTUSE_BIN +
-    DV_MPH_three*HIC15_log,
-  design = survey_design,
-  family = quasibinomial
- )
-summary(survey_model)
-
-
-
-
-survey_model <- svyglm(
-  HIPR ~ HIC15_log + 
-    DV_MPH_high + 
-    BELTUSE_BIN +
-    DV_MPH_high*HIC15_log,
-  design = survey_design,
-  family = quasibinomial
- )
-summary(survey_model)
-
-# positive predictive value for survey_model (does not work yet)
-# confusionMatrix(table(predict(survey_model, type = "response") > 0.5, madymo_nhtsa_df$HIPR))
-```
 
 ```{r visualize outcome variables}
 # examine frequency of DV_MPH values for all crashes with histogram
@@ -1553,341 +1787,16 @@ ggplot(madymo_nhtsa_df, aes(x = DV_MPH, fill = HIPR)) +
   # replace fill names with "Driver" and "Passenger"
   guides(fill = guide_legend(title = "Head injury"))
 
-ggplot(madymo_nhtsa_df, aes(x = DV_MPH, fill = MAIS_cat)) +
-  geom_histogram(binwidth = 5, position = "dodge") +
-  labs(title = "Distribution of Crash Speeds by Injury Status (All)", x = "Crash Speed (mph)", y = "Frequency") +
-  scale_fill_manual(values = c("0" = "blue", "1" = "red")) +
-  scale_x_continuous(breaks = seq(0, 65, by = 5)) +
-  facet_wrap(~SEATPOS) +
-  # replace fill names with "Driver" and "Passenger"
-  guides(fill = guide_legend(title = "Head injury"))
 ```
 
-```{r visualize HIC15 and DV_MPH relationship}
 
-# scatterplot of HIC15_thousand (10,000 scale) and DV_MPH to see relationship
-ggplot(madymo_nhtsa_df, aes(y = HIC15, x = DV_MPH)) +
-  geom_point() +
-  labs(title = "Scatterplot of HIC15 and DV_MPH", y = "HIC15 (transformed)", x = "DV_MPH") + 
-  # y axis to 65
-  scale_y_continuous(limits = c(0, 60000))
-
-
-# scatterplot of HIC15_sqrt and DV_MPH because above relationship was nonlinear
-ggplot(madymo_nhtsa_df, aes(y = sqrt(HIC15), x = DV_MPH)) +
-  geom_point() +
-  labs(title = "Scatterplot of sqrt(HIC15) and DV_MPH", y = "sqrt(HIC15) (transformed)", x = "DV_MPH") + 
-  # y axis to 65
-  scale_y_continuous(limits = c(0, 40))
-
-
-# scatterplot of HIC15_log and DV_MPH because above relationship was nonlinear
-ggplot(madymo_nhtsa_df, aes(y = log(HIC15), x = DV_MPH)) +
-  geom_point() +
-  labs(title = "Scatterplot of log(HIC15) and DV_MPH", y = "log(HIC15) (transformed)", x = "DV_MPH") + 
-  # y axis to 65
-  scale_y_continuous(limits = c(0, 12)) +
-  # draw regression line
-  geom_smooth(method = "lm")
-```
-
-```{r univariate logistic models, eval=FALSE}
-# full univariate model
-univariate_logistic_model_fun <- function(df) {
-  glm(
-    HIPR ~ (HIC15_log), 
-    family = "binomial", 
-    data = df)
-}
-
-# create dataframes for different subgroups
-subgroups_df <- list(
-  madymo_nhtsa_df,
-  
-  drivers_df = madymo_nhtsa_df %>%
-    filter(SEATPOS == 11),
-
-  passengers_df = madymo_nhtsa_df %>%
-    filter(SEATPOS == 13),
-
-  airbag_df = madymo_nhtsa_df %>%
-    filter(BAGDEPLOY_BIN == 1),
-
-  no_airbag_df = madymo_nhtsa_df %>%
-    filter(BAGDEPLOY_BIN == 0),
-
-  belt_df = madymo_nhtsa_df %>%
-    filter(BELTUSE_BIN == 1),
-
-  no_belt_df = madymo_nhtsa_df %>%
-    filter(BELTUSE_BIN == 0),
-
-  ten_twentyfive_df = madymo_nhtsa_df %>%
-    filter(DV_MPH >= 10 & DV_MPH <= 25),
-
-  twentyfive_forty_df = madymo_nhtsa_df %>%
-    filter(DV_MPH >= 25 & DV_MPH <= 40),
-
-  forty_fiftyfive_df = madymo_nhtsa_df %>%
-    filter(DV_MPH >= 40 & DV_MPH <= 55),
-
-  fiftyfive_df = madymo_nhtsa_df %>%
-    filter(DV_MPH >= 55)
-)
-
-
-
-univariate_models <- list(
-  logistic_model = 
-    univariate_logistic_model_fun(madymo_nhtsa_df),
-  
-  # drivers only
-  drivers_df_model = 
-    univariate_logistic_model_fun(madymo_nhtsa_df[madymo_nhtsa_df$SEATPOS == 11,]),
-  
-  # passengers only
-  passengers_df_model = 
-    univariate_logistic_model_fun(madymo_nhtsa_df[madymo_nhtsa_df$SEATPOS == 13,]),
-  
-  # airbag only
-  airbag_df_model = 
-    univariate_logistic_model_fun(madymo_nhtsa_df[madymo_nhtsa_df$BAGDEPLOY_BIN == 1,]),
-  
-  # no airbag only
-  no_airbag_df_model = 
-    univariate_logistic_model_fun(madymo_nhtsa_df[madymo_nhtsa_df$BAGDEPLOY_BIN == 0,]),
-  
-  # belt only
-  belt_df_model = 
-    univariate_logistic_model_fun(madymo_nhtsa_df[madymo_nhtsa_df$BELTUSE_BIN == 1,]),
-  
-  # no belt only
-  no_belt_df_model = 
-    univariate_logistic_model_fun(madymo_nhtsa_df[madymo_nhtsa_df$BELTUSE_BIN == 0,]),
-  
-  # 10-25 kmh only DV_MPH
-  ten_twentyfive_df_model = 
-    univariate_logistic_model_fun(subgroups_df$ten_twentyfive_df),
-  
-  # 25-40 kmh only DV_MPH
-  twentyfive_forty_df_model = 
-    univariate_logistic_model_fun(subgroups_df$twentyfive_forty_df),
-  
-  # 40-55 kmh only DV_MPH
-  forty_fiftyfive_df_model = 
-    univariate_logistic_model_fun(subgroups_df$forty_fiftyfive_df),
-  
-  # 55+ kmh only DV_MPH
-  fiftyfive_df_model = 
-    univariate_logistic_model_fun(subgroups_df$fiftyfive_df)
-)
-
-summary(univariate_models$logistic_model)
-summary(univariate_models$complex_logistic_model)
-summary(univariate_models$drivers_df_model)
-summary(univariate_models$passengers_df_model)
-summary(univariate_models$airbag_df_model)
-summary(univariate_models$no_airbag_df_model)
-summary(univariate_models$belt_df_model)
-summary(univariate_models$no_belt_df_model)
-summary(univariate_models$ten_twentyfive_df_model)
-summary(univariate_models$twentyfive_forty_df_model)
-summary(univariate_models$forty_fiftyfive_df_model)
-summary(univariate_models$fiftyfive_df_model)
-
-
-# test complex logistic model
-complex_logistic_model = glm(
-  HIPR ~ HIC15_thousand + 
-    BELTUSE_BIN + BAGDEPLOY_BIN + 
-    SEATPOS + DV_MPH, 
-  family = "binomial", 
-  data = madymo_nhtsa_df)
-
-
-OR_exp_β_fun <- function(model) {
-    round(
-      exp(
-        model$coefficients[2]), 
-      digits = 2)
-}
-
-ratio_exp_β_fun <- function(model1, model2) {
-  round(
-    exp(model1$coefficients[2])/
-      exp(model2$coefficients[2]), 
-    digits = 2)
-}
-
-
-
-
-
-# collect coefficients and p-values for all models, N count and %, avg HIC into a dataframe
-model_summary_df$model <- c(
-  "all",  "drivers", "passengers", "airbag", 
-  "no_airbag", "belt", "no_belt", 
-  "10-25 kmh", "25-40 kmh", "40-55 kmh", 
-  "55+ kmh")
-
-β <- c()
-for (model in univariate_models) {
-  β <-c(
-    β,
-    model$coefficients[2]
-  )
-}
-
-p_value <- c()
-for (model in univariate_models) {
-  p_value <-c(
-    p_value,
-    coef(summary(model))[,4][2]
-  )
-}
-  
-OR_exp_β <- c()
-for (model in univariate_models) {
-  OR_exp_β <-c(
-    OR_exp_β,
-    round(
-      exp(
-        model$coefficients[2]), 
-      digits = 2)
-  )
-}
-  
-N <- c()
-for (model in subgroups_df) {
-  N <- c(
-    N,
-    nrow(model)
-  )
-}
-
-N_prct <- c()
-for (model in subgroups_df) {
-  N_prct <- c(
-    N_prct,
-    round(
-      nrow(model)/
-        nrow(madymo_nhtsa_df)*100, 
-      digits = 2)
-  )
-}
-
-avg_hic <- c()
-for (model in subgroups_df) {
-  avg_hic <- c(
-    avg_hic,
-    round(
-      mean(model$HIC15, na.rm = TRUE),
-      digits = 2)
-  )
-}
-
-model_summary_df <- data.frame(
-  β,
-  p_value,
-  OR_exp_β,
-  N,
-  N_prct,
-  avg_hic
-)
-
-model_summary_df
-
-# SD of HIC
-sd(madymo_nhtsa_df$HIC15, na.rm = TRUE)
-
-# histogram of HIC
-ggplot(madymo_nhtsa_df, aes(x = HIC15)) +
-  geom_histogram(binwidth = 100) +
-  labs(title = "Distribution of HIC15 Values", x = "HIC15", y = "Frequency")
-# doesn"t give much useful information except that it has a skewed distribution
-
-# sensitivity and specificity of HIC15 vs HIPR
-# calculate sensitivity and specificity
-sensitivity <- sum(madymo_nhtsa_df$HIPR == 1 & madymo_nhtsa_df$HIC15 > 0) / sum(madymo_nhtsa_df$HIPR == 1)
-library(pROC)
-# ROC curve for continuous HIC variable vs HIPR
-roc_obj <- roc(madymo_nhtsa_df$HIPR, madymo_nhtsa_df$HIC15)
-
-```
-
-```{r clean environment}
+```{r clean environment, eval=FALSE}
 # clean unnecessary objects from enviroment
 # clean out all items in environment except ones in kept_items
 kept_items <- c("madymo_nhtsa_df", "MADYMO_df", "explore_df", "individual_count", "vehicle_count", "data_path_2000_2015", "univariate_models", "cols_final", "cols_all")
 rm(list = setdiff(ls(), kept_items))
 ```
 
-
-```{r plot coefficients and p-values}
-# Check for convergence issues
-# glance(univariate_models$belt_df_model) %>% 
-#   select(null.deviance, df.residual, nobs)
-
-# Check sample size and outcome distribution
-# subgroups_df$belt_df %>% 
-#   count(HIPR) %>% 
-#   mutate(prop = n/sum(n))
-
-# Check for complete separation
-# table(subgroups_df$belt_df$HIPR, subgroups_df$belt_df$HIC15_thousand)
-
-
-models <- list(
-  "Full" = univariate_models$logistic_model,
-  "Drivers" = univariate_models$drivers_df_model,
-  "Passengers" = univariate_models$passengers_df_model,
-  "Airbag" = univariate_models$airbag_df_model,
-  "No Airbag" = univariate_models$no_airbag_df_model,
-  "Belt" = univariate_models$belt_df_model,
-  "No Belt" = univariate_models$no_belt_df_model,
-  "10-25 kmh" = univariate_models$ten_twentyfive_df_model,
-  "25-40 kmh" = univariate_models$twentyfive_forty_df_model,
-  "40-55 kmh" = univariate_models$forty_fiftyfive_df_model,
-  "55+ kmh" = univariate_models$fiftyfive_df_model
-)
-
-
-
-# ISSUE: BELT has no confidence levels in results_table
-
-safe_tidy <- safely(~ tidy(.x, conf.int = TRUE, exponentiate = TRUE))
-
-results_table <- map_dfr(models, ~ {
-  result <- safe_tidy(.x)
-  if (!is.null(result$error)) {
-    tidy(.x, conf.int = FALSE, exponentiate = TRUE) %>%  # Fallback without CIs
-      mutate(conf.low = NA, conf.high = NA)
-  } else {
-    result$result
-  }
-}, .id = "Subgroup") %>% 
-  filter(term == "HIC15_thousand") %>% 
-  select(Subgroup, estimate, std.error, p.value, conf.low, conf.high)
-
-
-
-
-
-
-
-# visualize odds ratios CIs per univariate model using 
-
-
-
-ggplot(results_table, aes(x = estimate, y = Subgroup)) +
-  geom_point() +
-  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
-  geom_vline(xintercept = 1, linetype = "dashed") +
-  labs(x = "Odds Ratio (95% CI)", y = "Subgroup", title = "Effect of HIC15_thousand on Injury Risk") +
-  theme_minimal() +
-  # only show -1 to 1
-  scale_x_continuous(limits = c(0.8, 1.4))
-```
 
 ```{r print dataset to csv for external examination, eval=FALSE}
 library(data.table)
@@ -1966,8 +1875,3 @@ digraph DAG {
 ")
 ```
 
-
-
-```{}
-# OLD SURVEY CODE
-```
