@@ -1000,7 +1000,7 @@ missing_values <- madymo_nhtsa_df_listwise %>%
 print(missing_values)
 ```
 
-```{r listwise models removed missings}
+```{r listwise models removed missings, eval=FALSE}
 # univariate model
 univariate_model_listwise <- model_eval_fun(
   formula = "HIPR ~ HIC15_log",
@@ -1229,6 +1229,236 @@ comp <- c(
 
 models_listwise_comparison_df <- compare_df_fun(comp)
 print(models_listwise_comparison_df)
+```
+
+```{r categories BMI and DV_MPH, eval=FALSE}
+# visualize BMI levels
+ggplot(madymo_nhtsa_df, aes(x = BMI)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "Histogram of BMI", x = "BMI", y = "Count") +
+  theme_minimal()
+
+
+# visualize DV_MPH levels
+ggplot(madymo_nhtsa_df, aes(x = DV_MPH)) +
+  geom_histogram(binwidth = 2) +
+  labs(title = "Histogram of Delta V", x = "Delta V (mph)", y = "Count") +
+  theme_minimal()
+
+# visualize HIPR_prevalence
+ggplot(DV_MPH_vis_df, aes(x = DV_MPH, y = HIPR_prevalence)) +
+  geom_bar(stat = "identity") +
+  labs(title = "HIPR Prevalence by Delta V", x = "Delta V (mph)", y = "HIPR Prevalence") +
+  theme_minimal()
+
+
+xtab_df <- madymo_nhtsa_df %>%
+  group_by(BMI) %>%
+  summarise(
+    count = n(),
+    HIPR_count = sum(HIPR == 1),
+    HIPR_prevalence = HIPR_count / count,
+    BMI_low = ifelse(BMI < 30, 1, 0),
+    DV_MPH_low = ifelse(DV_MPH < 20, 1, 0),
+    # cut DV_MPH into 10 mph bins starting at 5, ending at 65
+    DV_MPH_cat_5 = cut(DV_MPH, breaks = seq(5, 65, by = 10), include.lowest = TRUE),
+    DV_MPH_cat_10 = cut(DV_MPH, breaks = seq(5, 65, by = 5), include.lowest = TRUE)
+  ) %>%
+  arrange(desc(HIPR_prevalence))
+
+# cross tab for BMI (<30>) and DV_MPH (5 levels) 
+xtab_df_dv_5 <- xtabs(
+  ~ BMI_low + DV_MPH_cat_5,
+  data = xtab_df
+)
+print(xtab_df_dv_5)
+
+# cross tab for BMI (<30>) and DV_MPH (10 levels) 
+xtab_df_dv_10 <- xtabs(
+  ~ BMI_low + DV_MPH_cat_10,
+  data = xtab_df
+)
+print(xtab_df_dv_10)
+```
+
+
+```{r BMI levels, eval=FALSE}
+# stratified analysis with BMI < 29 
+bmi_fit_underweight_29 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, BMI < 29)
+)
+summary(bmi_fit_underweight_29$model)
+
+# stratified analysis with BMI >= 29
+bmi_fit_overweight_29 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, BMI >= 29)
+)
+summary(bmi_fit_overweight_29$model)
+
+
+# stratified analysis with BMI < 30 
+bmi_fit_underweight_30 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, BMI < 30)
+)
+summary(bmi_fit_underweight_30$model)
+
+# stratified analysis with BMI >= 30
+bmi_fit_overweight_30 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, BMI >= 30)
+)
+summary(bmi_fit_overweight_30$model)
+
+
+# stratified analysis with BMI < 32 
+bmi_fit_underweight_32 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, BMI < 32)
+)
+summary(bmi_fit_underweight_32$model)
+
+# stratified analysis with BMI >= 32 
+bmi_fit_overweight_32 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, BMI >= 32)
+)
+summary(bmi_fit_overweight_32$model)
+
+
+comp_bmi <- c(
+  "bmi_fit_underweight_29",
+  "bmi_fit_overweight_29",
+  "bmi_fit_underweight_30",
+  "bmi_fit_overweight_30",
+  "bmi_fit_underweight_32",
+  "bmi_fit_overweight_32")
+
+bmi_comparison_df <- compare_df_fun(comp_bmi)
+print(bmi_comparison_df)
+
+```
+
+```{r delta V levels, eval=FALSE}
+# stratified analysis with DV < 9 
+bmi_fit_dv_under_9 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, DV_MPH < 12)
+)
+summary(bmi_fit_dv_under_9$model)
+
+# stratified analysis with DV >= 9
+bmi_fit_dv_over_9 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 9)
+)
+summary(bmi_fit_dv_over_9$model)
+
+
+# stratified analysis with DV < 9 
+bmi_fit_dv_9_to_14 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 9 & DV_MPH < 14)
+)
+summary(bmi_fit_dv_9_to_14$model)
+
+# stratified analysis with DV >= 9
+bmi_fit_dv_over_9 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 9)
+)
+summary(bmi_fit_dv_over_9$model)
+
+
+# stratified analysis with DV < 15 
+bmi_fit_dv_under_15 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, DV_MPH < 15)
+)
+summary(bmi_fit_dv_under_15$model)
+
+# stratified analysis with DV >= 15
+bmi_fit_dv_over_15 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 15)
+)
+summary(bmi_fit_dv_over_15$model)
+
+
+# stratified analysis with DV < 30 
+bmi_fit_dv_under_30 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, DV_MPH < 30)
+)
+summary(bmi_fit_dv_under_30$model)
+
+# stratified analysis with DV >= 30
+bmi_fit_dv_over_30 <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+  data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 30)
+)
+summary(bmi_fit_dv_over_30$model)
+
+
+
+
+
+
+comp_bmi <- c(
+  "bmi_fit_underweight_29",
+  "bmi_fit_overweight_29",
+  "bmi_fit_dv_under_30",
+  "bmi_fit_dv_over_30",
+  "bmi_fit_underweight_32",
+  "bmi_fit_overweight_32")
+
+bmi_comparison_df <- compare_df_fun(comp_bmi)
+print(bmi_comparison_df)
+
 ```
 
 ```{r multiple imputation, eval=FALSE}
