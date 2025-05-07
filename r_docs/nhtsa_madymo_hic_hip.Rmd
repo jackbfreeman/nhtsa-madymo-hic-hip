@@ -28,6 +28,14 @@ knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 data_path_2000_2015 <- file.path("data", "NHTSA_databases", "NHTSA All files")
 ```
 
+```{r general functions}
+# Function to format p-values
+format_p <- function(p) {
+  ifelse(p < 0.001, "<0.001", round(p, digits = 3))
+}
+```
+
+
 ```{r get MADYMO HIC values and build MADYMO dataframe, eval=FALSE}
 # create dataframe with MADYMO data
 BELTUSE_BIN <- c(0, 1)
@@ -327,8 +335,7 @@ process_year <- function(year) {
       BAGDEPLOY_BIN = ifelse(BAGDEPLY == 1, 1, 0),
       BMI = WEIGHT / ((HEIGHT / 100) ^ 2),
       BMI_HIGH = ifelse(BMI >= 30, 1, 0)
-    ) %>%
-    filter(SEATPOS %in% c(11, 13))  # Front-left and front-right seats
+    )
     ifelse(year == 2000, print(colnames(occ)), print(""))
 
     
@@ -369,16 +376,15 @@ process_year <- function(year) {
   print(paste("gv + veh count:", nrow(veh)))
   
   # front temp
-  front_temp <- occ %>%
+  veh_temp <- occ %>%
     inner_join(veh, by = c("PSU", "CASENO", "VEHNO", "RATWGT"))
   
-  print(paste("veh + occ count:", nrow(front_temp)))
+  print(paste("veh + occ count:", nrow(veh_temp)))
   
   # front final
-  front <- front_temp %>%
-    inner_join(accident, by = c("PSU", "CASENO", "RATWGT")) %>%
-    filter(EVENTS == 1)
-      ifelse(year == 2000, print(colnames(front)), print(""))
+  front <- veh_temp %>%
+    inner_join(accident, by = c("PSU", "CASENO", "RATWGT"))
+  ifelse(year == 2000, print(colnames(front)), print(""))
 
       
   print(paste("accident + front count:", nrow(front)))
@@ -391,15 +397,6 @@ years <- 2000:2015
 # years <- 2000
 all_data <- lapply(years, process_year)
 nhtsa_combined_df <- bind_rows(all_data)
-
-print(paste("all individuals all years before DOF1 filter:", nrow(nhtsa_combined_df)))
-
-
-# filter out DOF1 %in% c(1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92)
-nhtsa_combined_df <- nhtsa_combined_df %>%
-  filter(DOF1 %in% c(1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92))
-
-print(paste("all individuals all years after DOF1 filter:", nrow(nhtsa_combined_df)))
 
 # write nhtsa_combined_df to csv with vroom
 vroom::vroom_write(nhtsa_combined_df, file = file.path("data", "nhtsa_combined_df_saved.csv"))
@@ -420,7 +417,7 @@ nhtsa_combined_df <- nhtsa_combined_df %>%
     OI = ifelse(OI < 1, 0, OI),
     # need to make sure this is catching the right group
     INJURED = ifelse(OI == 1 | MAIS > 0 | INJNUM > 0, 1, 0),
-    SEX_BIN = ifelse(SEX == 1, 0, ifelse(SEX == 9, NA, 1)),
+    SEX_BIN = ifelse(SEX == 1, "m", ifelse(SEX == 9, NA, "f")),
     # combine WEATHER and CLIMATE; they are the same but different years and coded differently
     WEATHER = ifelse(
       YEAR %in% c(2000:2006),
@@ -485,15 +482,15 @@ nhtsa_combined_df <- nhtsa_combined_df %>%
               )))))))))
   ) %>%
   filter(
+    AGE >= 20,
+    SEATPOS %in% c(11, 13), # Front-left and front-right seats
+    EVENTS == 1,
+    DOF1 %in% c(1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92),
     DV_MPH >= 5 & DV_MPH <= 65,
     !is.na(BELTUSE_BIN),
     !is.na(BAGDEPLOY_BIN),
     !is.na(CONCUSSION)
   )
-
-
-# after reexamining WEATHER in the manual, it was only recorded until 2006. will now try to create joined weather variable that connects the different variable values
-
 
 
 
@@ -538,19 +535,6 @@ sort(colnames(nhtsa_combined_df))
 summary(explore_df)
 ```
 
-```{r keep only relevant columns}
-# columns that will be kept in final dataset
-cols_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "DVEST", "AIS1", "MAIS", "OCCNO", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "DV_MPH_BIN", "HEIGHT", "WEIGHT", "PSU", "PSUSTRAT", "RATWGT", "BODYTYPE", "ALCINV", "DEATH", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "VEHTYPE")
-
-# select only relevant columns
-nhtsa_combined_df <- nhtsa_combined_df %>%
-  select(
-    all_of(cols_final))
-
-print(paste("all years (after filter):", nrow(nhtsa_combined_df)))
-
-```
-
 ```{r join MADYMO data}
 # exclude NA values for some variables
 # nhtsa_combined_df <- nhtsa_combined_df %>%
@@ -569,7 +553,63 @@ MADYMO_df$BAGDEPLOY_BIN <- as.factor(MADYMO_df$BAGDEPLOY_BIN)
 # join MADYMO data to NHTSA dataframe
 madymo_nhtsa_df <- nhtsa_combined_df %>%
   left_join(MADYMO_df, by = join_by(DV_MPH == DVTOTAL, SEATPOS == SEATPOS, BELTUSE_BIN == BELTUSE_BIN, BAGDEPLOY_BIN == BAGDEPLOY_BIN))
+
+# get rid of environment items that are not needed
+rm(
+  MADYMO_df,
+  nhtsa_combined_df
+)
+
 ```
+
+```{r vars into strings}
+# replace weather numbers with strings
+madymo_nhtsa_df$WEATHER <- as.character(madymo_nhtsa_df$WEATHER)
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 0] <- "no adverse conditions"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 1] <- "rain"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 2] <- "sleet/hail"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 3] <- "snow"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 4] <- "fog"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 5] <- "rain and fog"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 6] <- "sleet and fog"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 7] <- "other"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 8] <- "unknown"
+
+
+# replace vehicle type with strings
+madymo_nhtsa_df$VEHTYPE <- as.character(madymo_nhtsa_df$VEHTYPE)
+madymo_nhtsa_df$VEHTYPE[madymo_nhtsa_df$VEHTYPE == "P"] <- "passenger vehicle"
+madymo_nhtsa_df$VEHTYPE[madymo_nhtsa_df$VEHTYPE == "T"] <- "truck"
+madymo_nhtsa_df$VEHTYPE[madymo_nhtsa_df$VEHTYPE %in% c("U", 9)] <- "unknown/other"
+
+# ALCINV to string
+madymo_nhtsa_df$ALCINV <- as.character(madymo_nhtsa_df$ALCINV)
+madymo_nhtsa_df$ALCINV[madymo_nhtsa_df$ALCINV == 1] <- "yes"
+madymo_nhtsa_df$ALCINV[madymo_nhtsa_df$ALCINV == 2] <- "no"
+
+# DRGINV to string
+madymo_nhtsa_df$DRGINV <- as.character(madymo_nhtsa_df$DRGINV)
+madymo_nhtsa_df$DRGINV[madymo_nhtsa_df$DRGINV == 1] <- "yes"
+madymo_nhtsa_df$DRGINV[madymo_nhtsa_df$DRGINV == 2] <- "no"
+
+
+# SEATPOS to string
+madymo_nhtsa_df$SEATPOS <- as.character(madymo_nhtsa_df$SEATPOS)
+madymo_nhtsa_df$SEATPOS[madymo_nhtsa_df$SEATPOS == 11] <- "driver"
+madymo_nhtsa_df$SEATPOS[madymo_nhtsa_df$SEATPOS == 13] <- "passenger"
+
+# categorize time into 5 levels
+madymo_nhtsa_df <- madymo_nhtsa_df %>%
+  mutate(
+    TIME_cat = cut(
+      TIME,
+      breaks = c(0, 600, 1200, 1800, 2400),
+      labels = c("night", "morning", "afternoon", "evening"),
+      include.lowest = TRUE
+    )
+  )
+```
+
 
 ```{r visualize HIC15 and DV_MPH relationship, eval=FALSE}
 
@@ -614,6 +654,14 @@ madymo_nhtsa_df$HIC15_sqrt <-
 ```
 
 ```{r print summary of relevant variables}
+# before beginning resource-intensive multiple imputation, make sure to only keep relevant columns
+columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "HEIGHT", "WEIGHT", "DV_MPH", "BODYTYPE", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "TIME_cat", "VEHTYPE", "HIC15", "HIC15_log")
+
+# select only relevant columns
+madymo_nhtsa_df <- madymo_nhtsa_df %>%
+  select(
+    all_of(columns_final))
+
 # print summary of relevant variables
 summary(madymo_nhtsa_df)
 ```
@@ -714,6 +762,20 @@ ggplot(madymo_nhtsa_df, aes(x = AGE)) +
 # exclude vars with normal ranges (can adjust which groups are added to the list; VEHWGT for example can be excluded)
 madymo_nhtsa_df <- madymo_nhtsa_df %>%
   filter(!ID %in% extreme_value_ids)
+
+
+# remove unnecessary items from environment
+rm(
+  extreme_value_ids,
+  extreme_values_df,
+  extreme_values,
+  extreme_value_ids,
+  vehwgt_df,
+  vehwgt_extreme_df,
+  vehwgt_extreme_count,
+  bmi_df,
+  explore_df
+)
 ```
 
 ```{r functions for survey model evaluation}
@@ -763,12 +825,19 @@ model_eval_fun <- function(formula = "HIPR ~ HIC15_log", data = madymo_nhtsa_df)
     Optimal_Cutoff = mycurve$optimal.cutoff$cutoff.value,
     Sensitivity = mycurve$optimal.cutoff$Sew,
     Specificity = mycurve$optimal.cutoff$Spw,
-    Correlation = cor(as.numeric(roc_data$y), roc_data$phat, use = "pairwise.complete.obs")
+    Correlation = cor(as.numeric(roc_data$y), roc_data$phat, use = "pairwise.complete.obs"),
+    # get p-value and standard error for model (only HIC15_log)
+    beta = summary(model)$coefficients[2, 1],
+    p_value = summary(model)$coefficients[2, 4],
+    se = summary(model)$coefficients[2, 2],
+    Cases = mycurve$basics$n.event,
+    Controls = mycurve$basics$n.nonevent
     # PPV - excluding because low prevalence makes PPV low
     # PPV = 100 * ((mycurve$optimal.cutoff$Sew * prevalence) / 
     #                ((mycurve$optimal.cutoff$Sew * prevalence) + 
     #                   ((1 - mycurve$optimal.cutoff$Spw) * (1 - prevalence))))
   )
+  
   
   # Generate plot
   roc_plot <- wroc.plot(
@@ -797,7 +866,16 @@ compare_df_fun <- function(models) {
     sensitivity <- get(model)$metrics$Sensitivity
     specificity <- get(model)$metrics$Specificity
     correlation <- get(model)$metrics$Correlation
+    # get n.event from mycurve$basics 
+    num_cases <- get(model)$metrics$Cases
+    # count number of HIPR == 0
+    num_controls <- get(model)$metrics$Controls
+    p_value <- get(model)$metrics$p_value
+    se <- get(model)$metrics$se
+    beta <- get(model)$metrics$beta
     # PPV <- get(model)$metrics$PPV
+    
+    # browser()
     
     # Create a new row for the comparison dataframe
     new_row <- data.frame(
@@ -809,7 +887,12 @@ compare_df_fun <- function(models) {
       # Optimal_Cutoff_log = (optimal_cutoff),
       Sensitivity = sensitivity,
       Specificity = specificity,
-      Correlation = correlation
+      Correlation = correlation,
+      Cases = num_cases,
+      Controls = num_controls,
+      Beta = beta,
+      SE = se,
+      P_value = p_value
     )
     
     # Append the new row to the comparison dataframe
@@ -977,13 +1060,45 @@ summary(missing_model)
 ```
 
 ```{r define kept columns}
-# before beginning resource-intensive multiple imputation, make sure to only keep relevant columns
-columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "VEHTYPE", "HIC15", "HIC15_log")
+columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "TIME_cat", "VEHTYPE", "HIC15", "HIC15_log")
 
 # select only relevant columns
 madymo_nhtsa_df <- madymo_nhtsa_df %>%
   select(
     all_of(columns_final))
+```
+
+```{r DV_MPH split categories}
+# create BMI_low, DV_MPH_low, DV_MPH_cat_5, and DV_MPH_cat_10 variables in madymo_nhtsa_df
+bmi_cutoff <- 30 # could be 32, better sens and spec, but fewer for splitting by DV_MPH in higher levels
+
+madymo_nhtsa_df <- madymo_nhtsa_df %>%
+  mutate(
+    BMI_low = as.factor(ifelse(BMI < bmi_cutoff, 1, 0)),
+    DV_MPH_low = as.factor(ifelse(DV_MPH < 20, 1, 0)),
+    DV_MPH_cat_3 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(5, 65, by = 20), include.lowest = TRUE))),
+    DV_MPH_cat_5 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(5, 65, by = 12), include.lowest = TRUE))),
+    DV_MPH_cat_10 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(5, 65, by = 6), include.lowest = TRUE)))
+  )
+
+
+
+
+
+
+# FIND SPLIT POINTS BASED ON TOTAL NUMBER OF CASES BY DV_MPH into 3 categories
+
+
+
+
+
+
+# visualize DV_MPH levels
+# ggplot(madymo_nhtsa_df, aes(x = DV_MPH)) +
+#   geom_histogram(binwidth = 2) +
+#   labs(title = "Histogram of Delta V", x = "Delta V (mph)", y = "Count") +
+#   theme_minimal()
+
 ```
 
 ```{r remove missing values listwise}
@@ -998,6 +1113,11 @@ missing_values <- madymo_nhtsa_df_listwise %>%
   filter(missing > 0) %>%
   arrange(desc(missing))
 print(missing_values)
+
+# remove unnecessary items from environment
+rm(
+  missing_values
+)
 ```
 
 ```{r listwise models removed missings, eval=FALSE}
@@ -1213,12 +1333,39 @@ multivariate_model_listwise_final <- model_eval_fun(
 )
 summary(multivariate_model_listwise_final$model)
 
-
+# remaining covariates: BMI + DV_MPH
 
 
 ```
 
-```{r compare non-imputed models}
+```{r visualize HIC15 risk curve, eval=FALSE}
+# visualize HIC15 risk curve using multivariate_model_listwise_final$model using predicted values
+# create a new dataframe with predicted values
+predicted_df <- madymo_nhtsa_df_listwise %>%
+  mutate(
+    predicted = predict(multivariate_model_listwise_final$model, newdata = madymo_nhtsa_df_listwise, type = "response")
+  )
+
+#plot logistic regression curve
+ggplot(predicted_df, aes(x=HIC15, y=predicted)) + 
+  geom_point(alpha=.5) +
+  stat_smooth(method="glm", se=FALSE, method.args = list(family=binomial))
+
+# graph with left Y axis for HIC and the right one for injury risk, with the x axis for dV
+# Assuming a linear transformation: HIC15 = prob * 1000 (adjust based on your data)
+scaling_factor <- 60000  # Change this based on your HIC15 range
+
+ggplot(predicted_df, aes(x = DV_MPH, y = predicted)) +
+  geom_point(alpha = 0.5) +
+  stat_smooth(method = "glm", se = FALSE, method.args = list(family = binomial)) +
+  scale_y_continuous(
+    name = "Injury Risk",
+    sec.axis = sec_axis(~ . * scaling_factor, name = "HIC15")
+  ) +
+  labs(title = "HIC15 Risk Curve", x = "Delta V (mph)", y = "Injury Risk")
+```
+
+```{r compare non-imputed models, eval=FALSE}
 # compare model_eval_fun results
 comp <- c(
   "univariate_model_listwise",
@@ -1232,26 +1379,7 @@ print(models_listwise_comparison_df)
 ```
 
 ```{r categories BMI and DV_MPH, eval=FALSE}
-# visualize BMI levels
-ggplot(madymo_nhtsa_df, aes(x = BMI)) +
-  geom_histogram(binwidth = 1) +
-  labs(title = "Histogram of BMI", x = "BMI", y = "Count") +
-  theme_minimal()
-
-
-# visualize DV_MPH levels
-ggplot(madymo_nhtsa_df, aes(x = DV_MPH)) +
-  geom_histogram(binwidth = 2) +
-  labs(title = "Histogram of Delta V", x = "Delta V (mph)", y = "Count") +
-  theme_minimal()
-
-# visualize HIPR_prevalence
-ggplot(DV_MPH_vis_df, aes(x = DV_MPH, y = HIPR_prevalence)) +
-  geom_bar(stat = "identity") +
-  labs(title = "HIPR Prevalence by Delta V", x = "Delta V (mph)", y = "HIPR Prevalence") +
-  theme_minimal()
-
-
+# create dataframe for examining BMI and DV_MPH
 xtab_df <- madymo_nhtsa_df %>%
   group_by(BMI) %>%
   summarise(
@@ -1261,10 +1389,41 @@ xtab_df <- madymo_nhtsa_df %>%
     BMI_low = ifelse(BMI < 30, 1, 0),
     DV_MPH_low = ifelse(DV_MPH < 20, 1, 0),
     # cut DV_MPH into 10 mph bins starting at 5, ending at 65
-    DV_MPH_cat_5 = cut(DV_MPH, breaks = seq(5, 65, by = 10), include.lowest = TRUE),
-    DV_MPH_cat_10 = cut(DV_MPH, breaks = seq(5, 65, by = 5), include.lowest = TRUE)
+    DV_MPH_cat_3 = cut(DV_MPH, breaks = seq(5, 65, by = 20), include.lowest = TRUE),
+    # cut DV_MPH into 10 mph bins starting at 5, ending at 65
+    DV_MPH_cat_5 = cut(DV_MPH, breaks = seq(5, 65, by = 12), include.lowest = TRUE),
+    # cut DV_MPH into 5 mph bins starting at 5, ending at 65
+    DV_MPH_cat_10 = cut(DV_MPH, breaks = seq(5, 65, by = 6), include.lowest = TRUE)
   ) %>%
   arrange(desc(HIPR_prevalence))
+
+# visualize HIPR_prevalence
+ggplot(xtab_df, aes(x = DV_MPH_cat_10, y = HIPR_prevalence)) +
+  geom_bar(stat = "identity") +
+  labs(title = "HIPR Prevalence by Delta V", x = "Delta V (mph)", y = "HIPR Prevalence") +
+  theme_minimal()
+
+
+# visualize BMI levels
+ggplot(madymo_nhtsa_df, aes(x = BMI)) +
+  geom_histogram(binwidth = 1) +
+  labs(title = "Histogram of BMI", x = "BMI", y = "Count") +
+  theme_minimal()
+
+
+# cross tab for BMI (<30>) and DV_MPH (<20>) 
+xtab_df_dv_low <- xtabs(
+  ~ BMI_low + DV_MPH_low,
+  data = xtab_df
+)
+print(xtab_df_dv_low)
+
+# cross tab for BMI (<30>) and DV_MPH (3 levels) 
+xtab_df_dv_3 <- xtabs(
+  ~ BMI_low + DV_MPH_cat_3,
+  data = xtab_df
+)
+print(xtab_df_dv_3)
 
 # cross tab for BMI (<30>) and DV_MPH (5 levels) 
 xtab_df_dv_5 <- xtabs(
@@ -1279,6 +1438,8 @@ xtab_df_dv_10 <- xtabs(
   data = xtab_df
 )
 print(xtab_df_dv_10)
+
+
 ```
 
 
@@ -1361,87 +1522,87 @@ print(bmi_comparison_df)
 
 ```{r delta V levels, eval=FALSE}
 # stratified analysis with DV < 9 
-bmi_fit_dv_under_9 <- model_eval_fun(
+fit_dv_under_9 <- model_eval_fun(
   formula = paste(
     "HIPR ~", 
     paste(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, DV_MPH < 12)
 )
-summary(bmi_fit_dv_under_9$model)
+summary(fit_dv_under_9$model)
 
 # stratified analysis with DV >= 9
-bmi_fit_dv_over_9 <- model_eval_fun(
+fit_dv_over_9 <- model_eval_fun(
   formula = paste(
     "HIPR ~", 
     paste(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 9)
 )
-summary(bmi_fit_dv_over_9$model)
+summary(fit_dv_over_9$model)
 
 
 # stratified analysis with DV < 9 
-bmi_fit_dv_9_to_14 <- model_eval_fun(
+fit_dv_9_to_14 <- model_eval_fun(
   formula = paste(
     "HIPR ~", 
     paste(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 9 & DV_MPH < 14)
 )
-summary(bmi_fit_dv_9_to_14$model)
+summary(fit_dv_9_to_14$model)
 
 # stratified analysis with DV >= 9
-bmi_fit_dv_over_9 <- model_eval_fun(
+fit_dv_over_9 <- model_eval_fun(
   formula = paste(
     "HIPR ~", 
     paste(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 9)
 )
-summary(bmi_fit_dv_over_9$model)
+summary(fit_dv_over_9$model)
 
 
 # stratified analysis with DV < 15 
-bmi_fit_dv_under_15 <- model_eval_fun(
+fit_dv_under_15 <- model_eval_fun(
   formula = paste(
     "HIPR ~", 
     paste(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, DV_MPH < 15)
 )
-summary(bmi_fit_dv_under_15$model)
+summary(fit_dv_under_15$model)
 
 # stratified analysis with DV >= 15
-bmi_fit_dv_over_15 <- model_eval_fun(
+fit_dv_over_15 <- model_eval_fun(
   formula = paste(
     "HIPR ~", 
     paste(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 15)
 )
-summary(bmi_fit_dv_over_15$model)
+summary(fit_dv_over_15$model)
 
 
 # stratified analysis with DV < 30 
-bmi_fit_dv_under_30 <- model_eval_fun(
+fit_dv_under_30 <- model_eval_fun(
   formula = paste(
     "HIPR ~", 
     paste(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, DV_MPH < 30)
 )
-summary(bmi_fit_dv_under_30$model)
+summary(fit_dv_under_30$model)
 
 # stratified analysis with DV >= 30
-bmi_fit_dv_over_30 <- model_eval_fun(
+fit_dv_over_30 <- model_eval_fun(
   formula = paste(
     "HIPR ~", 
     paste(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 30)
 )
-summary(bmi_fit_dv_over_30$model)
+summary(fit_dv_over_30$model)
 
 
 
@@ -1460,6 +1621,294 @@ bmi_comparison_df <- compare_df_fun(comp_bmi)
 print(bmi_comparison_df)
 
 ```
+
+```{r AUC grid function (fig 2)}
+roc_grid_fun <- function(models_obj, col_num = 3) {
+  
+  model_names <- names(models_obj)
+  
+  # Extract data from each model object
+  roc_df <- imap_dfr(models_obj, function(model, model_name) {
+    # Extract ROC curve info from wroc object
+    wroc_data <- model$mycurve$wroc.curve
+    
+    # Extract correlation and other values for display on side
+    beta <- model$metrics$beta
+    # r_value <- model$metrics$Correlation
+    AUC <- model$metrics$AUC
+    SE <- model$metrics$se
+    P_value <- model$metrics$p_value
+    cases <- model$metrics$Cases
+    Controls <- model$metrics$Controls
+    
+    # browser()
+    
+    tibble(
+      FPR = 1 - wroc_data$Spw.values,  # 1 - Specificity
+      TPR = wroc_data$Sew.values,      # Sensitivity
+      Model = model_name,
+      AUC = AUC,
+      # Optimal_Cutoff = optimal_cutoff,
+      Beta = beta,
+      SE = SE,
+      P_value = P_value,
+      Cases = cases,
+      Controls = Controls
+      # Correlation = r_value
+    )
+  })
+  
+    
+  # preserve order of models (don't get alphabetized by summarise
+  roc_df <- roc_df %>%
+    mutate(Model = factor(Model, levels = model_names))
+  
+  
+  # Get unique correlation per model for annotation, next line p-value
+  label_df <- roc_df %>%
+    group_by(Model) %>%
+    # summarize to get unique values for Correlation and AUC
+    summarise(
+      # Correlation = first(Correlation),
+      Cases = first(Cases),
+      Beta = first(Beta),
+      AUC = first(AUC),
+      # Optimal_Cutoff = first(Optimal_Cutoff),
+      SE = first(SE),
+      P_value = first(P_value),
+      Cases = first(Cases),
+      Controls = first(Controls)
+    ) %>%
+    mutate(label = paste0("Cases = ", Cases,
+                          "\nControls = ", Controls, 
+                          "\nAUC = ", round(AUC, 2),
+                          "\nBeta = ", round(Beta, 2),
+                          "\nSE = ", round(SE, 2), 
+                          "\nP-value = ", format_p(P_value)
+                          # "\nOptimal Cutoff = ", round(Optimal_Cutoff, 2),
+                          # "\n\nr = ", round(Correlation, 2)
+    )
+    )
+  
+  # Plot curves
+  ggplot(roc_df, aes(x = FPR, y = TPR)) +
+    geom_line(color = "blue", size = 1) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey") +
+    facet_wrap(~ Model, ncol = col_num) +
+    geom_text(
+      data = label_df,
+      aes(x = 0.75, y = 0.3, label = label),  # Adjust position if needed
+      inherit.aes = FALSE,
+      size = 3,
+      hjust = 0
+    ) +
+    theme_minimal() +
+    labs(
+      title = "ROC Curves by Model",
+      x = "1 - Specificity (False Positive Rate)",
+      y = "Sensitivity (True Positive Rate)"
+    )
+}
+```
+
+```{r AUC grid example}
+# Step 1: Named list of main model objects
+model_objs_listwise_stepwise <- list(
+  "Univariate" = univariate_model_listwise,
+  "Occupant Variables" = multivariate_model_listwise_occ,
+  "Environment Variables" = multivariate_model_listwise_env,
+  "Simulation Variables" = multivariate_model_listwise_sim,
+  "Final Model" = multivariate_model_listwise_final
+)
+
+roc_grid_fun(model_objs_listwise_stepwise, col_num = 2)
+```
+
+```{r AUC grid model build, eval=FALSE}
+AUC_grid_subset_rules <- list(
+  AUC_grid_DV31_BMIlow = "DV_MPH_cat_3 == 1 & BMI_low == 1",
+  AUC_grid_DV32_BMIlow = "DV_MPH_cat_3 == 2 & BMI_low == 1",
+  # AUC_grid_DV33_BMIlow = "DV_MPH_cat_3 == 3 & BMI_low == 1" # stratum 10 only has one PSU at stage 1
+  AUC_grid_DV31_BMIhigh = "DV_MPH_cat_3 == 1 & BMI_low == 0"
+  # AUC_grid_DV32_BMIhigh = "DV_MPH_cat_3 == 2 & BMI_low == 0" # stratum 10 only has one PSU at stage 1
+  # AUC_grid_DV33_BMIhigh = "DV_MPH_cat_3 == 3 & BMI_low == 0" # stratum 12 only has one PSU at stage 1
+)
+
+
+AUC_grid_models <- lapply(names(AUC_grid_subset_rules), function(name) {
+  rule <- AUC_grid_subset_rules[[name]]
+  model_eval_fun(
+    formula = "HIPR ~ HIC15_log",
+    data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
+  )
+})
+names(AUC_grid_models) <- names(AUC_grid_subset_rules)
+
+
+
+
+# make this work!
+
+
+
+# compare models in AUC_grid_models with compare_df_fun
+AUC_grid_comparison_df <- compare_df_fun((names(AUC_grid_models)))
+
+
+
+```
+
+```{r AUC grid DV BMI split, eval=FALSE}
+# Step 1: Named list of main model objects
+model_objs_listwise_stepwise_bmi <- list(
+  
+)
+
+```
+
+```{r baseline descriptives function}
+# for continuous variables, t.test
+# for categorical variables, chisq.test (if less than 5, fisher.test)
+baseline_desc_fun <- function(df) {
+  # Create cases and controls data frames
+cases_df <- df %>% filter(HIPR == 1)
+controls_df <- df %>% filter(HIPR == 0)
+
+# Define variables with labels and types
+baseline_vars <- list(
+  list(var_name = "DV_MPH", label = "Delta V (mph)", type = "continuous"),
+  list(var_name = "SEATPOS", label = "Seat Position", type = "categorical"),
+  list(var_name = "BELTUSE_BIN", label = "Belt Use (%)", type = "categorical"),
+  list(var_name = "BAGDEPLOY_BIN", label = "Airbag Deployment (%)", type = "categorical"),
+  list(var_name = "AGE", label = "Age", type = "continuous"),
+  list(var_name = "BMI", label = "BMI in kg/m²", type = "continuous"),
+  list(var_name = "SEX_BIN", label = "Sex (%)", type = "categorical"),
+  list(var_name = "ALCINV", label = "Alcohol Involvement (%)", type = "categorical"),
+  list(var_name = "WEATHER", label = "Weather Conditions (%)", type = "categorical"),
+  list(var_name = "VEHWGT", label = "Vehicle Weight (lbs)", type = "continuous"),
+  # list(var_name = "MAKE", label = "Vehicle Make", type = "categorical"),
+  list(var_name = "MODELYR", label = "Vehicle Model Year", type = "continuous"),
+  list(var_name = "TIME_cat", label = "Time of Day", type = "categorical"),
+  list(var_name = "VEHTYPE", label = "Vehicle Type", type = "categorical")
+)
+
+# Initialize empty dataframe for results
+baseline_descriptives <- data.frame(
+  Characteristic = character(),
+  Value = character(),
+  Control = character(),
+  Case = character(),
+  P_Value = character(),
+  stringsAsFactors = FALSE
+)
+
+
+# Process each variable
+for (var in baseline_vars) {
+  if (var$type == "continuous") {
+    # Continuous variables
+    case_mean <- mean(cases_df[[var$var_name]], na.rm = TRUE)
+    case_sd <- sd(cases_df[[var$var_name]], na.rm = TRUE)
+    control_mean <- mean(controls_df[[var$var_name]], na.rm = TRUE)
+    control_sd <- sd(controls_df[[var$var_name]], na.rm = TRUE)
+    
+    p_value <- t.test(cases_df[[var$var_name]], controls_df[[var$var_name]])$p.value
+    
+    baseline_descriptives <- rbind(
+      baseline_descriptives,
+      data.frame(
+        Characteristic = var$label,
+        Value = "Mean (SD)",
+        Control = sprintf("%.1f (%.1f)", control_mean, control_sd),
+        Case = sprintf("%.1f (%.1f)", case_mean, case_sd),
+        P_Value = format_p(p_value),
+        stringsAsFactors = FALSE
+      )
+    )
+  } else {
+    # Ensure the variable is treated as a factor with all levels including NA
+    current_var <- df[[var$var_name]]
+    if (!is.factor(current_var)) {
+      current_var <- factor(current_var)
+    }
+    
+    # Check if there are any NAs in the full dataset
+    has_na <- anyNA(current_var)
+    
+    # If NAs exist, add NA as a level; otherwise, keep original levels
+    if (has_na) {
+      current_var <- addNA(current_var)
+    }
+    all_levels <- levels(current_var)
+      
+      # Get counts and percentages with factors
+      case_factor <- factor(cases_df[[var$var_name]], levels = all_levels)
+      control_factor <- factor(controls_df[[var$var_name]], levels = all_levels)
+      
+      # Apply addNA() only if NAs exist in the full dataset
+      if (has_na) {
+        case_factor <- addNA(case_factor)
+        control_factor <- addNA(control_factor)
+      }
+      
+      case_counts <- table(case_factor)
+      case_pct <- prop.table(case_counts) * 100
+      control_counts <- table(control_factor)
+      control_pct <- prop.table(control_counts) * 100
+      
+      # Statistical test
+      cont_table <- table(df[[var$var_name]], df$HIPR)
+      test_result <- suppressWarnings(chisq.test(cont_table))
+      if (any(test_result$expected < 5)) {
+        test_result <- fisher.test(cont_table, simulate.p.value = TRUE)
+      }
+      
+      # Add header row
+      baseline_descriptives <- rbind(
+        baseline_descriptives,
+        data.frame(
+          Characteristic = var$label,
+          Value = "",
+          Control = "",
+          Case = "",
+          P_Value = format_p(test_result$p.value),
+          stringsAsFactors = FALSE
+        )
+      )
+      
+      # Add levels with proper handling of missing levels
+      for (level in all_levels) {
+        control_count <- ifelse(is.na(control_counts[level]), 0, control_counts[level])
+        control_pct_val <- ifelse(is.na(control_pct[level]), 0, control_pct[level])
+        case_count <- ifelse(is.na(case_counts[level]), 0, case_counts[level])
+        case_pct_val <- ifelse(is.na(case_pct[level]), 0, case_pct[level])
+        
+        baseline_descriptives <- rbind(
+          baseline_descriptives,
+          data.frame(
+            Characteristic = "",
+            Value = level,
+            Control = sprintf("%d (%.1f%%)", control_count, control_pct_val),
+            Case = sprintf("%d (%.1f%%)", case_count, case_pct_val),
+            P_Value = "",
+            stringsAsFactors = FALSE
+          )
+        )
+      }
+    }
+  }
+
+# View the final table
+print(baseline_descriptives)
+}
+```
+
+```{r baseline descriptives listwise}
+baseline_desc_fun(madymo_nhtsa_df_listwise)
+baseline_desc_fun(madymo_nhtsa_df)
+```
+
+
 
 ```{r multiple imputation, eval=FALSE}
 # multiple imputation to take care of remaining missingness
@@ -1480,7 +1929,7 @@ saveRDS(imputed_data, file = file.path("data", "imputed_data.rds"))
 vroom::vroom_write(madymo_nhtsa_df_imp, file = file.path("data", "madymo_nhtsa_df_mice.csv"))
 ```
 
-```{r baseline descriptives}
+```{r imputation objecst}
 # load imputed_data
 imputed_data <- readRDS(file = file.path("data", "imputed_data.rds"))
 
@@ -1488,108 +1937,6 @@ imputed_data <- readRDS(file = file.path("data", "imputed_data.rds"))
 madymo_nhtsa_df_imp <- complete(imputed_data, action = "long", include = TRUE)
 
 madymo_nhtsa_df_imp2 <- complete(imputed_data, "all")
-
-# Create cases and controls data frames
-cases_df <- madymo_nhtsa_df %>% filter(HIPR == 1)
-controls_df <- madymo_nhtsa_df %>% filter(HIPR == 0)
-
-# Define variables with labels and types
-baseline_vars <- list(
-  list(var_name = "AGE", label = "Age", type = "continuous"),
-  list(var_name = "BMI", label = "BMI in kg/m²", type = "continuous"),
-  list(var_name = "SEX_BIN", label = "Sex (%)", type = "categorical"),
-  list(var_name = "SEATPOS", label = "Seat Position", type = "categorical"),
-  list(var_name = "BELTUSE_BIN", label = "Belt Use (%)", type = "categorical"),
-  list(var_name = "BAGDEPLOY_BIN", label = "Airbag Deployment (%)", type = "categorical")
-)
-
-# Initialize empty dataframe for results
-baseline_descriptives <- data.frame(
-  Characteristic = character(),
-  Value = character(),
-  Cohort = character(),
-  With_head_injury = character(),
-  P_Value = character(),
-  stringsAsFactors = FALSE
-)
-
-# Function to format p-values
-format_p <- function(p) {
-  ifelse(p < 0.001, "<0.001", round(p, digits = 3))
-}
-
-# Process each variable
-for (var in baseline_vars) {
-  if (var$type == "continuous") {
-    # Continuous variables
-    case_mean <- mean(cases_df[[var$var_name]], na.rm = TRUE)
-    case_sd <- sd(cases_df[[var$var_name]], na.rm = TRUE)
-    control_mean <- mean(controls_df[[var$var_name]], na.rm = TRUE)
-    control_sd <- sd(controls_df[[var$var_name]], na.rm = TRUE)
-    
-    p_value <- t.test(cases_df[[var$var_name]], controls_df[[var$var_name]])$p.value
-    
-    baseline_descriptives <- rbind(
-      baseline_descriptives,
-      data.frame(
-        Characteristic = var$label,
-        Value = "Mean (SD)",
-        Cohort = sprintf("%.1f (%.1f)", control_mean, control_sd),
-        With_head_injury = sprintf("%.1f (%.1f)", case_mean, case_sd),
-        P_Value = format_p(p_value),
-        stringsAsFactors = FALSE
-      )
-    )
-  } else {
-    # Categorical variables
-    # Get counts and percentages
-    case_counts <- table(cases_df[[var$var_name]])
-    case_pct <- prop.table(case_counts) * 100
-    control_counts <- table(controls_df[[var$var_name]])
-    control_pct <- prop.table(control_counts) * 100
-    
-    # Statistical test
-    cont_table <- table(madymo_nhtsa_df[[var$var_name]], madymo_nhtsa_df$HIPR)
-    test_result <- suppressWarnings(chisq.test(cont_table))
-    if (any(test_result$expected < 5)) test_result <- fisher.test(cont_table)
-    
-    # Add header row
-    baseline_descriptives <- rbind(
-      baseline_descriptives,
-      data.frame(
-        Characteristic = var$label,
-        Value = "",
-        Cohort = "",
-        With_head_injury = "",
-        P_Value = format_p(test_result$p.value),
-        stringsAsFactors = FALSE
-      )
-    )
-    
-    # Add levels
-    for (level in levels(madymo_nhtsa_df[[var$var_name]])) {
-      baseline_descriptives <- rbind(
-        baseline_descriptives,
-        data.frame(
-          Characteristic = "",
-          Value = level,
-          Cohort = sprintf("%d (%.1f%%)", control_counts[level], control_pct[level]),
-          With_head_injury = sprintf("%d (%.1f%%)", case_counts[level], case_pct[level]),
-          P_Value = "",
-          stringsAsFactors = FALSE
-        )
-      )
-    }
-  }
-}
-
-# View the final table
-print(baseline_descriptives)
-
-
-# rethink what groups are split by in baseline descriptives (outcome might not be best way to do it, but no predetermined stratification variable like sex, like seen in other papers)
-# not difficult to do, so can just adjust code after meeting with maurice
-
 ```
 
 ```{r new functions for imputed multivariate survey model evaluation}
@@ -1864,115 +2211,6 @@ compared_models <- c(
 compare_df_fun(compared_models)
 ```
 
-
-```{r non-survey logistic regression normal, eval=FALSE}
-# vif(lm(DV_MPH ~ HIC15_thousand, data = madymo_nhtsa_df))
-
-model <- glm(HIPR ~ HIC15_thousand, 
-            data = madymo_nhtsa_df, family = "binomial")
-
-# roc for model
-roc_obj_crude <- roc(madymo_nhtsa_df$HIPR, predict(model, type = "response"))
-plot(roc_obj_crude, main = "ROC Curve for Crude Model")
-
-summary(glm(HIPR ~ HIC15_thousand + 
-              DV_MPH, 
-            data = madymo_nhtsa_df, family = "binomial"))
-
-summary(glm(HIPR ~ HIC15_thousand*DV_MPH + 
-              DV_MPH + 
-              BELTUSE_BIN, 
-            data = madymo_nhtsa_df, family = "binomial"))
-
-summary(glm(HIPR ~ HIC15_thousand + 
-              DV_MPH + 
-              BELTUSE_BIN + 
-              SEATPOS + 
-              BAGDEPLOY_BIN, 
-            data = madymo_nhtsa_df, family = "binomial"))
-
-summary(glm(HIPR ~ HIC15_thousand + 
-              DV_MPH + 
-              BELTUSE_BIN + 
-              SEATPOS + 
-              BAGDEPLOY_BIN, 
-            data = madymo_nhtsa_df, family = "binomial"))
-
-model <- glm(HIPR ~ HIC15_thousand + 
-              DV_MPH + 
-              BELTUSE_BIN + 
-              SEATPOS + 
-              BAGDEPLOY_BIN + 
-              AGE + 
-              BMI + 
-              SEX_BIN, 
-            data = madymo_nhtsa_df, family = "binomial", na.action = na.exclude)
-summary(model)
-# roc for model
-roc_obj_final <- roc(madymo_nhtsa_df$HIPR, predict(model, type = "response"))
-plot(roc_obj_final, main = "ROC Curve for Final Model")
-
-# get ppv and npv of model
-# confusionMatrix(table(predict(model, type = "response") > 0.5, madymo_nhtsa_df$HIPR))
-
-```
-
-```{r non-survey logistic regression log transformed, eval=FALSE}
-# visualize 
-
-
-# # VIF DV_MPH and HIC15_log
-# vif(lm(DV_MPH ~ HIC15_log, data = madymo_nhtsa_df))
-
-summary(glm(HIPR ~ HIC15_log, 
-            data = madymo_nhtsa_df, family = "binomial"))
-
-summary(glm(HIPR ~ HIC15_log + 
-              DV_MPH, 
-            data = madymo_nhtsa_df, family = "binomial"))
-
-summary(glm(HIPR ~ HIC15_log + 
-              DV_MPH + 
-              BELTUSE_BIN, 
-            data = madymo_nhtsa_df, family = "binomial"))
-
-summary(glm(HIPR ~ HIC15_log + 
-              DV_MPH + 
-              BELTUSE_BIN + 
-              SEATPOS + 
-              BAGDEPLOY_BIN, 
-            data = madymo_nhtsa_df, family = "binomial"))
-
-summary(glm(HIPR ~ HIC15_log + 
-              DV_MPH + 
-              BELTUSE_BIN + 
-              SEATPOS + 
-              BAGDEPLOY_BIN +
-              AGE, 
-            data = madymo_nhtsa_df, family = "binomial"))
-
-model <- glm(HIPR ~ HIC15_log + 
-              DV_MPH + 
-              BELTUSE_BIN + 
-              SEATPOS + 
-              BAGDEPLOY_BIN + 
-              AGE + 
-              BMI + 
-              SEX_BIN, 
-            data = madymo_nhtsa_df, family = "binomial")
-summary(model)
-
-# examine correlation between DV_MPH and HIC15_log
-cor(madymo_nhtsa_df$DV_MPH, madymo_nhtsa_df$HIC15_log)
-
-# get ROC for model
-# roc_obj <- roc(madymo_nhtsa_df$HIPR, predict(model, type = "response"))
-# fails because different lengths
-
-# get ppv and npv of model
-# confusionMatrix(table(predict(model, type = "response") > 0.5, madymo_nhtsa_df$HIPR))
-
-```
 
 ```{r make DV_MPH categories, eval=FALSE}
 # create DV_MPH_two var where DVMPH is 0 if DVMPH < 35 and 1 if DVMPH >= 35
