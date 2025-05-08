@@ -2309,81 +2309,84 @@ print(AUC_grid_comparison_df_DV_and_BMI_tertile)
 
 ```{r ROC grid given vars function}
 # creates grid of ROC curves that are split by xtiles (defined in argument) for 2 continuous variables to compare.
+# var_x is variable that appears on x-axis, var y is variable on y-axis
 roc_grid_interaction_fun <- function(
-    df, 
-    var1, 
-    var2, 
+    df = madymo_nhtsa_df_listwise, 
+    var_x = DVEST_MPH, 
+    var_y = BMI, 
+    var_x_lab = "Delta V (MPH)",
+    var_y_lab = "BMI (kg/m^2)",
     num_levels1 = 3, 
     num_levels2 = 3, 
     outcome_var = "HIPR", 
     predictor = "HIC15_log") {
   
   # Create xtiles for both variables
-  var1_name <- deparse(substitute(var1))
-  var2_name <- deparse(substitute(var2))
+  var_x_name <- deparse(substitute(var_x))
+  var_y_name <- deparse(substitute(var_y))
   
-  var1_xtile_name <- paste0(var1_name, "_xtile")
-  var2_xtile_name <- paste0(var2_name, "_xtile")
+  var_x_xtile_name <- paste0(var_x_name, "_xtile")
+  var_y_xtile_name <- paste0(var_y_name, "_xtile")
   
   # Create temporary df with xtiles
   temp_df <- df %>%
     mutate(
-      !!var1_xtile_name := as.factor(ntile({{var1}}, num_levels1)),
-      !!var2_xtile_name := as.factor(ntile({{var2}}, num_levels2))
+      !!var_x_xtile_name := as.factor(ntile({{var_x}}, num_levels1)),
+      !!var_y_xtile_name := as.factor(ntile({{var_y}}, num_levels2))
     )
   
   # Get min/max for each xtile
-  var1_min_max <- temp_df %>%
-    group_by(!!sym(var1_xtile_name)) %>%
+  var_x_min_max <- temp_df %>%
+    group_by(!!sym(var_x_xtile_name)) %>%
     summarise(
-      min = min(round({{var1}}), na.rm = TRUE),
-      max = max(round({{var1}}), na.rm = TRUE)
+      min = min(round({{var_x}}), na.rm = TRUE),
+      max = max(round({{var_x}}), na.rm = TRUE)
     )
   
-  var2_min_max <- temp_df %>%
-    group_by(!!sym(var2_xtile_name)) %>%
+  var_y_min_max <- temp_df %>%
+    group_by(!!sym(var_y_xtile_name)) %>%
     summarise(
-      min = min(round({{var2}}), na.rm = TRUE),
-      max = max(round({{var2}}), na.rm = TRUE)
+      min = min(round({{var_y}}), na.rm = TRUE),
+      max = max(round({{var_y}}), na.rm = TRUE)
     )
   
   # Create all combinations of rules in the correct order
   subset_rules <- list()
   
-  # 1. Individual cells (var1 levels × var2 levels)
+  # 1. Individual cells (var_x levels × var_y levels)
   for (j in 1:num_levels2) {
     for (i in 1:num_levels1) {
       name <- paste0(
-        var1_name, " ", var1_min_max$min[i], "-", var1_min_max$max[i], 
-        ", ", var2_name, " ", var2_min_max$min[j], "-", var2_min_max$max[j]
+        var_x_lab, " ", var_x_min_max$min[i], "-", var_x_min_max$max[i], 
+        ", ", var_y_lab, " ", var_y_min_max$min[j], "-", var_y_min_max$max[j]
       )
-      rule <- paste0(var1_xtile_name, " == ", i, " & ", var2_xtile_name, " == ", j)
+      rule <- paste0(var_x_xtile_name, " == ", i, " & ", var_y_xtile_name, " == ", j)
       subset_rules[[name]] <- rule
     }
     
-    # 2. Row summaries at end of each row (all var1, fixed var2 level)
+    # 2. Row summaries at end of each row (all var_x, fixed var_y level)
     name <- paste0(
-      "All ", var1_name, 
-      ", ", var2_name, " ", var2_min_max$min[j], "-", var2_min_max$max[j]
+      "All ", var_x_lab, 
+      ", ", var_y_lab, " ", var_y_min_max$min[j], "-", var_y_min_max$max[j]
     )
-    rule <- paste0(var2_xtile_name, " == ", j)
+    rule <- paste0(var_y_xtile_name, " == ", j)
     subset_rules[[name]] <- rule
   }
   
-  # 3. Column summaries in last row (fixed var1 level, all var2)
+  # 3. Column summaries in last row (fixed var_x level, all var_y)
   for (i in 1:num_levels1) {
     name <- paste0(
-      var1_name, " ", var1_min_max$min[i], "-", var1_min_max$max[i],
-      ", All ", var2_name
+      var_x_lab, " ", var_x_min_max$min[i], "-", var_x_min_max$max[i],
+      ", All ", var_y_lab
     )
-    rule <- paste0(var1_xtile_name, " == ", i)
+    rule <- paste0(var_x_xtile_name, " == ", i)
     subset_rules[[name]] <- rule
   }
   
-  # 4. Full model in bottom-right corner (all var1, all var2)
-  name <- paste0("All ", var1_name, ", All ", var2_name)
-  rule <- paste0(var1_xtile_name, " %in% 1:", num_levels1, " & ", 
-                var2_xtile_name, " %in% 1:", num_levels2)
+  # 4. Full model in bottom-right corner (all var_x, all var_y)
+  name <- paste0("All ", var_x_lab, ", All ", var_y_lab)
+  rule <- paste0(var_x_xtile_name, " %in% 1:", num_levels1, " & ", 
+                var_y_xtile_name, " %in% 1:", num_levels2)
   subset_rules[[name]] <- rule
   
   # Create models for each rule
@@ -2403,8 +2406,10 @@ roc_grid_interaction_fun <- function(
 
 roc_grid_interaction_fun(
   df = madymo_nhtsa_df_listwise,
-  var1 = DVEST_MPH,
-  var2 = BMI,
+  var_x = DVEST_MPH,
+  var_y = BMI,
+  var_x_lab = "Delta V",
+  var_y_lab = "BMI",
   num_levels1 = 3,
   num_levels2 = 3
 )
