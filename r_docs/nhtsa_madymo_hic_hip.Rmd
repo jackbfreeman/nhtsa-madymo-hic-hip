@@ -1265,9 +1265,9 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
   mutate(
     BMI_low = as.factor(ifelse(BMI < bmi_cutoff, 1, 0)),
     DV_MPH_low = as.factor(ifelse(DV_MPH < 20, 1, 0)),
-    DV_MPH_cat_3 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(5, 65, by = 20), include.lowest = TRUE))),
-    DV_MPH_cat_5 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(5, 65, by = 12), include.lowest = TRUE))),
-    DV_MPH_cat_10 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(5, 65, by = 6), include.lowest = TRUE)))
+    DV_MPH_cat_3 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 20), include.lowest = TRUE))),
+    DV_MPH_cat_5 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 12), include.lowest = TRUE))),
+    DV_MPH_cat_10 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 6), include.lowest = TRUE)))
   )
 
 
@@ -1577,12 +1577,12 @@ xtab_df <- madymo_nhtsa_df %>%
     HIPR_prevalence = HIPR_count / count,
     BMI_low = ifelse(BMI < 30, 1, 0),
     DV_MPH_low = ifelse(DV_MPH < 20, 1, 0),
-    # cut DV_MPH into 10 mph bins starting at 5, ending at 65
-    DV_MPH_cat_3 = cut(DV_MPH, breaks = seq(5, 65, by = 20), include.lowest = TRUE),
-    # cut DV_MPH into 10 mph bins starting at 5, ending at 65
-    DV_MPH_cat_5 = cut(DV_MPH, breaks = seq(5, 65, by = 12), include.lowest = TRUE),
-    # cut DV_MPH into 5 mph bins starting at 5, ending at 65
-    DV_MPH_cat_10 = cut(DV_MPH, breaks = seq(5, 65, by = 6), include.lowest = TRUE)
+    # cut DV_MPH into 10 mph bins starting at min_DV_MPH, ending at max_DV_MPH
+    DV_MPH_cat_3 = cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 20), include.lowest = TRUE),
+    # cut DV_MPH into 10 mph bins starting at min_DV_MPH, ending at max_DV_MPH
+    DV_MPH_cat_5 = cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 12), include.lowest = TRUE),
+    # cut DV_MPH into min_DV_MPH mph bins starting at min_DV_MPH, ending at max_DV_MPH
+    DV_MPH_cat_10 = cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 6), include.lowest = TRUE)
   ) %>%
   arrange(desc(HIPR_prevalence))
 
@@ -1817,7 +1817,7 @@ print(bmi_comparison_df)
 
 ```
 
-```{r delta V xtiles}
+```{r delta V xtiles, eval=FALSE}
 # create xtiles, quartiles, and quintiles for DV_MPH, even spread across all individuals
 madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
   mutate(
@@ -3010,21 +3010,21 @@ ggplot(madymo_nhtsa_df, aes(x = DV_MPH)) +
   geom_histogram(binwidth = 2.5) +
   labs(title = "Distribution of Crash Speeds (All)", x = "Crash Speed (mph)", y = "Frequency") +
   # x axis every 5 mph
-  scale_x_continuous(breaks = seq(0, 65, by = 5))
+  scale_x_continuous(breaks = seq(0, max_DV_MPH, by = min_DV_MPH))
 
 # examine frequency of head injury values by speed for all crashes with histogram
 ggplot(madymo_nhtsa_df, aes(x = DV_MPH, fill = HIPR)) +
   geom_histogram(binwidth = 5, position = "dodge") +
   labs(title = "Distribution of Crash Speeds by Injury Status (All)", x = "Crash Speed (mph)", y = "Frequency") +
   scale_fill_manual(values = c("0" = "blue", "1" = "red")) +
-  scale_x_continuous(breaks = seq(0, 65, by = 5))
+  scale_x_continuous(breaks = seq(0, max_DV_MPH, by = min_DV_MPH))
 
 # examine frequency of head injury values by speed for all crashes, separated by SEATPOS with histogram
 ggplot(madymo_nhtsa_df, aes(x = DV_MPH, fill = HIPR)) +
   geom_histogram(binwidth = 5, position = "dodge") +
   labs(title = "Distribution of Crash Speeds by Injury Status (All)", x = "Crash Speed (mph)", y = "Frequency") +
   scale_fill_manual(values = c("0" = "blue", "1" = "red")) +
-  scale_x_continuous(breaks = seq(0, 65, by = 5)) +
+  scale_x_continuous(breaks = seq(0, max_DV_MPH, by = min_DV_MPH)) +
   facet_wrap(~SEATPOS) +
   # replace fill names with "Driver" and "Passenger"
   guides(fill = guide_legend(title = "Head injury"))
