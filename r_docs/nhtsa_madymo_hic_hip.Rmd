@@ -28,13 +28,18 @@ knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 data_path_2000_2015 <- file.path("data", "NHTSA_databases", "NHTSA All files")
 ```
 
+```{r universal variables}
+min_DV_MPH <- 5
+max_DV_MPH <- 40
+```
+
+
 ```{r general functions}
 # Function to format p-values
 format_p <- function(p) {
   ifelse(p < 0.001, "<0.001", round(p, digits = 3))
 }
 ```
-
 
 ```{r get MADYMO HIC values and build MADYMO dataframe, eval=FALSE}
 # create dataframe with MADYMO data
@@ -478,30 +483,41 @@ nhtsa_combined_df <- nhtsa_combined_df %>%
                     VEHWGT == 8, 33000,
                     ifelse(
                       VEHWGT == 9, NA,
-                    VEHWGT
-              ))))))))),
-    DVEST_KPH = ifelse(
-      DVEST == 1, 5,
+                      VEHWGT
+                    ))))))))),
+    DVEST_KPH = 
       ifelse(
-        DVEST == 2, 17,
+        DVEST == 0, DVTOTAL,
         ifelse(
-          DVEST == 3, 32,
+          DVEST == 1, 5,
           ifelse(
-            DVEST == 4, 47,
+            DVEST == 2, 17,
             ifelse(
-              DVEST == 5, 62, NA
-              ))))),
-    DVEST_MPH = DVEST_KPH * 0.621371)
+              DVEST == 3, 32,
+              ifelse(
+                DVEST == 4, 47,
+                ifelse(
+                  DVEST == 5, 62, NA
+                )))))),
+    DVEST_MPH = round(DVEST_KPH * 0.621371, digits = 0),
+    BMI = round(BMI, digits = 0))
+
 
 data_counts <- list()
+criteria_list <- list()
+
 data_counts <- c(
   data_counts,
-  before_age = nrow(nhtsa_combined_df)
-  ) 
-print(
-  paste0(
+  before_AGE = nrow(nhtsa_combined_df)
+)
+criteria_list <- c(
+    criteria_list,
+    before_AGE = paste0(
     "Count before AGE >= 20: ", 
-    data_counts$before_age)
+    data_counts$before_AGE)
+  )
+print(
+  criteria_list$before_AGE
   )
 # filter out cases by in- and exclusion criteria
 nhtsa_combined_df <- nhtsa_combined_df %>%
@@ -513,11 +529,17 @@ data_counts <- c(
   data_counts,
   before_seatpos = nrow(nhtsa_combined_df)
 )
-print(
-  paste0(
+
+criteria_list <- c(
+    criteria_list,
+    before_seatpos = paste0(
     "Count before SEATPOS %in% c(11, 13): ", 
     data_counts$before_seatpos)
-)
+  )
+print(
+  criteria_list$before_seatpos
+  )
+
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
     SEATPOS %in% c(11, 13)
@@ -527,11 +549,17 @@ data_counts <- c(
   data_counts,
 before_events = nrow(nhtsa_combined_df)
 )
-print(
-  paste0(
+
+criteria_list <- c(
+    criteria_list,
+    before_events = paste0(
     "Count before EVENTS == 1: ", 
-            data_counts$before_events)
+    data_counts$before_events)
   )
+print(
+  criteria_list$before_events
+  )
+
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
     # Front-left and front-right seats
@@ -541,11 +569,17 @@ data_counts <- c(
   data_counts,
 before_DOF1 = nrow(nhtsa_combined_df)
 )
-print(
-  paste0(
+
+criteria_list <- c(
+    criteria_list,
+    before_DOF1 = paste0(
     "Count before DOF1 %in% c(1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92): ", 
     data_counts$before_DOF1)
   )
+print(
+  criteria_list$before_DOF1
+  )
+
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
     DOF1 %in% c(1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92)
@@ -557,25 +591,37 @@ data_counts <- c(
   data_counts,
 before_DVEST = nrow(nhtsa_combined_df)
 )
-print(
-  paste0(
-    "Count before DVEST %in% c(2:5) | DV_MPH >= 5 & DV_MPH <= 65: ",
-    data_counts$before_DVEST)
+
+criteria_list <- c(
+    criteria_list,
+    before_DVEST_MPH = paste0(
+    "Count before DVEST_MPH >= ", min_DV_MPH, " & DVEST_MPH <= ", max_DV_MPH, ": ", 
+    data_counts$before_DVEST_MPH)
   )
+print(
+  criteria_list$before_DVEST_MPH
+  )
+
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
-    DVEST %in% c(2:5) | DV_MPH >= 5 & DV_MPH <= 65
+    DVEST_MPH >= min_DV_MPH & DVEST_MPH <= max_DV_MPH
   )
 
 data_counts <- c(
   data_counts,
 before_BELTUSE_BIN = nrow(nhtsa_combined_df)
 )
-print(
-  paste0(
+
+criteria_list <- c(
+    criteria_list,
+    before_BELTUSE_BIN = paste0(
     "Count before !is.na(BELTUSE_BIN): ", 
     data_counts$before_BELTUSE_BIN)
   )
+print(
+  criteria_list$before_BELTUSE_BIN
+  )
+
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
     !is.na(BELTUSE_BIN)
@@ -585,11 +631,17 @@ data_counts <- c(
   data_counts,
 before_BAGDEPLOY_BIN = nrow(nhtsa_combined_df)
 )
-print(
-  paste0(
+
+criteria_list <- c(
+    criteria_list,
+    before_BAGDEPLOY_BIN = paste0(
     "Count before !is.na(BAGDEPLOY_BIN): ", 
     data_counts$before_BAGDEPLOY_BIN)
   )
+print(
+  criteria_list$before_BAGDEPLOY_BIN
+  )
+
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
     !is.na(BAGDEPLOY_BIN)
@@ -599,11 +651,17 @@ data_counts <- c(
   data_counts,
 before_CONCUSSION = nrow(nhtsa_combined_df)
 )
-print(
-  paste0(
+
+criteria_list <- c(
+    criteria_list,
+    before_CONCUSSION = paste0(
     "Count before !is.na(CONCUSSION): ", 
     data_counts$before_CONCUSSION)
   )
+print(
+  criteria_list$before_CONCUSSION
+  )
+
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
     !is.na(CONCUSSION)
@@ -613,10 +671,15 @@ data_counts <- c(
   data_counts,
   after_filters = nrow(nhtsa_combined_df)
 )
-print(
-  paste0(
-    "all entries all years after filters:", 
+
+criteria_list <- c(
+    criteria_list,
+    after_filters = paste0(
+    "All entries all years after filters:", 
     data_counts$after_filters)
+  )
+print(
+  criteria_list$after_filters
   )
 
 # add categorical MAIS variable
@@ -646,14 +709,14 @@ cols_all <- sort(colnames(nhtsa_combined_df))
 cols_factor <- c("BAGDEPLY", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI_HIGH", "CONCUSSION", "DVEST", "HIPR", "ID", "INJURED", "MAIS", "MAIS_cat", "MANUSE", "OBJCONT1", "OBJCONT2", "OCCNO", "OI", "PSU", "PSUSTRAT", "ROLLOVER", "SEATPOS", "SEX_BIN", "VEHNO", "VEHTYPE", "YEAR", "ALCINV", "DEATH", "DRGINV", "MAKE", "WEATHER")
 nhtsa_combined_df[cols_factor] <- lapply(nhtsa_combined_df[cols_factor], factor)
 
-cols_explore <- c(cols_factor, "AGE", "BMI", "DV_MPH", "DV_MPH")
+cols_explore <- c(cols_factor, "AGE", "BMI", "DV_MPH", "DVEST", "DVEST_MPH", "DVBASIS")
 
 explore_df <- subset(nhtsa_combined_df, select = cols_explore)
-
+explore_df$DVBASIS <- as.factor(explore_df$DVBASIS)
 # add IND_ID var which is a unique identifier for each individual
 
-sort(colnames(nhtsa_combined_df))
-
+# print criteria_list in- and exclusion counts
+paste(criteria_list)
 
 # explore data
 summary(explore_df)
@@ -781,7 +844,7 @@ madymo_nhtsa_df$HIC15_sqrt <-
 
 ```{r print summary of relevant variables}
 # before beginning resource-intensive multiple imputation, make sure to only keep relevant columns
-columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "HEIGHT", "WEIGHT", "DV_MPH", "BODYTYPE", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "TIME_cat", "VEHTYPE", "HIC15", "HIC15_log")
+columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "HEIGHT", "WEIGHT", "DV_MPH", "DVEST_MPH", "BODYTYPE", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "TIME_cat", "VEHTYPE", "HIC15", "HIC15_log")
 
 # select only relevant columns
 madymo_nhtsa_df <- madymo_nhtsa_df %>%
@@ -1186,7 +1249,7 @@ summary(missing_model)
 ```
 
 ```{r define kept columns}
-columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "TIME_cat", "VEHTYPE", "HIC15", "HIC15_log")
+columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "DVEST_MPH", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "TIME_cat", "VEHTYPE", "HIC15", "HIC15_log")
 
 # select only relevant columns
 madymo_nhtsa_df <- madymo_nhtsa_df %>%
@@ -1568,7 +1631,6 @@ print(xtab_df_dv_10)
 
 ```
 
-
 ```{r BMI levels, eval=FALSE}
 # stratified analysis with BMI < 29 
 bmi_fit_underweight_29 <- model_eval_fun(
@@ -1647,6 +1709,13 @@ print(bmi_comparison_df)
 ```
 
 ```{r delta V levels, eval=FALSE}
+# visualize cases per DVEST_MPH
+ggplot(madymo_nhtsa_df, aes(x = DV_MPH)) +
+  geom_histogram(binwidth = 2) +
+  labs(title = "Histogram of Delta V", x = "Delta V (mph)", y = "Count") +
+  theme_minimal()
+
+
 # stratified analysis with DV < 9 
 fit_dv_under_9 <- model_eval_fun(
   formula = paste(
@@ -1752,52 +1821,62 @@ print(bmi_comparison_df)
 # create xtiles, quartiles, and quintiles for DV_MPH, even spread across all individuals
 madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
   mutate(
-    DV_MPH_tertile = ntile(DV_MPH, 3),
-    DV_MPH_quartile = ntile(DV_MPH, 4),
-    DV_MPH_quintile = ntile(DV_MPH, 5)
+    DVEST_MPH_tertile = ntile(DVEST_MPH, 3),
+    DVEST_MPH_quartile = ntile(DVEST_MPH, 4),
+    DVEST_MPH_quintile = ntile(DVEST_MPH, 5),
+    BMI_tertile = ntile(BMI, 3)
   )
 
 # check xtiles
 xtab_df_dv_tertile <- xtabs(
-  ~  BMI_low + DV_MPH_tertile,
+  ~  BMI_low + DVEST_MPH_tertile,
   data = madymo_nhtsa_df_listwise
 )
 print(xtab_df_dv_tertile)
 
 xtab_df_dv_quartile <- xtabs(
-  ~ BMI_low + DV_MPH_quartile,
+  ~ BMI_low + DVEST_MPH_quartile,
   data = madymo_nhtsa_df_listwise
 )
 print(xtab_df_dv_quartile)
 
 xtab_df_dv_quintile <- xtabs(
-  ~ BMI_low + DV_MPH_quintile,
+  ~ BMI_low + DVEST_MPH_quintile,
   data = madymo_nhtsa_df_listwise
 )
 print(xtab_df_dv_quintile)
 
-# list minima and maxima of each quintile
-tertile_min_max <- madymo_nhtsa_df_listwise %>%
-  group_by(DV_MPH_tertile) %>%
+# list minima and maxima of each DVEST tertile
+DVEST_tertile_min_max <- madymo_nhtsa_df_listwise %>%
+  group_by(DVEST_MPH_tertile) %>%
   summarise(
-    min = min(DV_MPH),
-    max = max(DV_MPH)
+    min = min(DVEST_MPH),
+    max = max(DVEST_MPH)
   )
-print(tertile_min_max)
+print(DVEST_tertile_min_max)
+
+# list minima and maxima of each BMI tertile
+BMI_tertile_min_max <- madymo_nhtsa_df_listwise %>%
+  group_by(BMI_tertile) %>%
+  summarise(
+    min = round(min(BMI)),
+    max = round(max(BMI))
+  )
+print(BMI_tertile_min_max)
 
 quartile_min_max <- madymo_nhtsa_df_listwise %>%
-  group_by(DV_MPH_quartile) %>%
+  group_by(DVEST_MPH_quartile) %>%
   summarise(
-    min = min(DV_MPH),
-    max = max(DV_MPH)
+    min = min(DVEST_MPH),
+    max = max(DVEST_MPH)
   )
 print(quartile_min_max)
 
 quintile_min_max <- madymo_nhtsa_df_listwise %>%
-  group_by(DV_MPH_quintile) %>%
+  group_by(DVEST_MPH_quintile) %>%
   summarise(
-    min = min(DV_MPH),
-    max = max(DV_MPH)
+    min = min(DVEST_MPH),
+    max = max(DVEST_MPH)
   )
 print(quintile_min_max)
 ```
@@ -1807,18 +1886,18 @@ print(quintile_min_max)
 madymo_nhtsa_df_listwise_hipr <- madymo_nhtsa_df_listwise %>%
   filter(HIPR == 1) %>%
   mutate(
-    DV_MPH_tertile_case = ntile(DV_MPH, 3),
-    DV_MPH_quartile_case = ntile(DV_MPH, 4),
-    DV_MPH_quintile_case = ntile(DV_MPH, 5)
+    DVEST_MPH_tertile_case = ntile(DVEST_MPH, 3),
+    DVEST_MPH_quartile_case = ntile(DVEST_MPH, 4),
+    DVEST_MPH_quintile_case = ntile(DVEST_MPH, 5)
   )
 
 
 # list minima and maxima of each tertile
 tertile_min_max_case <- madymo_nhtsa_df_listwise_hipr %>%
-  group_by(DV_MPH_tertile_case) %>%
+  group_by(DVEST_MPH_tertile_case) %>%
   summarise(
-    min = min(DV_MPH),
-    max = max(DV_MPH)
+    min = min(DVEST_MPH),
+    max = max(DVEST_MPH)
   )
 
 tertile_case_mins <- tertile_min_max_case %>% pull(2)
@@ -1826,10 +1905,10 @@ tertile_case_mins <- tertile_min_max_case %>% pull(2)
 # add tertile_min_max_case to madymo_nhtsa_df_listwise
 madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
   mutate(
-    DV_MPH_tertile_case = as.factor(case_when(
-      DV_MPH < tertile_case_mins[2] ~ 1,
-      DV_MPH >= tertile_case_mins[2] & DV_MPH < tertile_case_mins[3] ~ 2,
-      DV_MPH > tertile_case_mins[3] ~ 3
+    DVEST_MPH_tertile_case = as.factor(case_when(
+      DVEST_MPH < tertile_case_mins[2] ~ 1,
+      DVEST_MPH >= tertile_case_mins[2] & DVEST_MPH < tertile_case_mins[3] ~ 2,
+      DVEST_MPH > tertile_case_mins[3] ~ 3
     )
     )
   )
@@ -1837,10 +1916,10 @@ madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
 
 # list minima and maxima of each quartile
 quartile_min_max_case <- madymo_nhtsa_df_listwise_hipr %>%
-  group_by(DV_MPH_quartile_case) %>%
+  group_by(DVEST_MPH_quartile_case) %>%
   summarise(
-    min = min(DV_MPH),
-    max = max(DV_MPH)
+    min = min(DVEST_MPH),
+    max = max(DVEST_MPH)
   )
 
 quartile_case_mins <- quartile_min_max_case %>% pull(2)
@@ -1848,27 +1927,27 @@ quartile_case_mins <- quartile_min_max_case %>% pull(2)
 # add quartile_min_max_case to madymo_nhtsa_df_listwise
 madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
   mutate(
-    DV_MPH_quartile_case = as.factor(case_when(
-      DV_MPH < quartile_case_mins[2] ~ 1,
-      DV_MPH >= quartile_case_mins[2] & DV_MPH < quartile_case_mins[3] ~ 2,
-      DV_MPH >= quartile_case_mins[3] & DV_MPH < quartile_case_mins[4] ~ 3,
-      DV_MPH >= quartile_case_mins[4] ~ 4
+    DVEST_MPH_quartile_case = as.factor(case_when(
+      DVEST_MPH < quartile_case_mins[2] ~ 1,
+      DVEST_MPH >= quartile_case_mins[2] & DVEST_MPH < quartile_case_mins[3] ~ 2,
+      DVEST_MPH >= quartile_case_mins[3] & DVEST_MPH < quartile_case_mins[4] ~ 3,
+      DVEST_MPH >= quartile_case_mins[4] ~ 4
     )
   )
   )
 
 # check quartiles
 xtab_df_dv_quartile_case <- xtabs(
-  ~  BMI_low + DV_MPH_quartile_case,
+  ~  BMI_low + DVEST_MPH_quartile_case,
   data = madymo_nhtsa_df_listwise_hipr
 )
 
 # list minima and maxima of each quartile
 quintile_min_max_case <- madymo_nhtsa_df_listwise_hipr %>%
-  group_by(DV_MPH_quintile_case) %>%
+  group_by(DVEST_MPH_quintile_case) %>%
   summarise(
-    min = min(DV_MPH),
-    max = max(DV_MPH)
+    min = min(DVEST_MPH),
+    max = max(DVEST_MPH)
   )
 
 quintile_case_mins <- quintile_min_max_case %>% pull(2)
@@ -1876,12 +1955,12 @@ quintile_case_mins <- quintile_min_max_case %>% pull(2)
 # add quintile_min_max_case to madymo_nhtsa_df_listwise
 madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
   mutate(
-    DV_MPH_quintile_case = as.factor(case_when(
-      DV_MPH < quintile_case_mins[2] ~ 1,
-      DV_MPH >= quintile_case_mins[2] & DV_MPH < quintile_case_mins[3] ~ 2,
-      DV_MPH >= quintile_case_mins[3] & DV_MPH < quintile_case_mins[4] ~ 3,
-      DV_MPH >= quintile_case_mins[4] & DV_MPH < quintile_case_mins[5] ~ 4,
-      DV_MPH >= quintile_case_mins[5] ~ 5
+    DVEST_MPH_quintile_case = as.factor(case_when(
+      DVEST_MPH < quintile_case_mins[2] ~ 1,
+      DVEST_MPH >= quintile_case_mins[2] & DVEST_MPH < quintile_case_mins[3] ~ 2,
+      DVEST_MPH >= quintile_case_mins[3] & DVEST_MPH < quintile_case_mins[4] ~ 3,
+      DVEST_MPH >= quintile_case_mins[4] & DVEST_MPH < quintile_case_mins[5] ~ 4,
+      DVEST_MPH >= quintile_case_mins[5] ~ 5
     )
   )
   )
@@ -1990,94 +2069,349 @@ roc_grid_fun(model_objs_listwise_stepwise, col_num = 2)
 ```
 
 ```{r AUC grid model build, eval=FALSE}
-AUC_grid_subset_rules_tertile <- list(
-  AUC_grid_DV31_BMIlow = "DV_MPH_tertile == 1 & BMI_low == 1",
-  AUC_grid_DV32_BMIlow = "DV_MPH_tertile == 2 & BMI_low == 1",
-  AUC_grid_DV33_BMIlow = "DV_MPH_tertile == 3 & BMI_low == 1",
-  AUC_grid_DV31_BMIhigh = "DV_MPH_tertile == 1 & BMI_low == 0",
-  AUC_grid_DV32_BMIhigh = "DV_MPH_tertile == 2 & BMI_low == 0",
-  AUC_grid_DV33_BMIhigh = "DV_MPH_tertile == 3 & BMI_low == 0"
-)
+# NOW DEFUNCT - FOLLOWING BLOCK HAS SCALABLE FORMULA VERSION OF THIS CODE
 
-AUC_grid_subset_rules_quartile <- list(
-  AUC_grid_DV41_BMIlow = "DV_MPH_quartile == 1 & BMI_low == 1",
-  AUC_grid_DV42_BMIlow = "DV_MPH_quartile == 2 & BMI_low == 1",
-  AUC_grid_DV43_BMIlow = "DV_MPH_quartile == 3 & BMI_low == 1",
-  AUC_grid_DV44_BMIlow = "DV_MPH_quartile == 4 & BMI_low == 1",
-  AUC_grid_DV41_BMIhigh = "DV_MPH_quartile == 1 & BMI_low == 0",
-  AUC_grid_DV42_BMIhigh = "DV_MPH_quartile == 2 & BMI_low == 0",
-  AUC_grid_DV43_BMIhigh = "DV_MPH_quartile == 3 & BMI_low == 0",
-  AUC_grid_DV44_BMIhigh = "DV_MPH_quartile == 4 & BMI_low == 0"
-)
+# AUC_grid_subset_rules_DV_tertile <- list(
+#   AUC_grid_DV31_BMIlow = "DV_MPH_tertile == 1 & BMI_low == 1",
+#   AUC_grid_DV32_BMIlow = "DV_MPH_tertile == 2 & BMI_low == 1",
+#   AUC_grid_DV33_BMIlow = "DV_MPH_tertile == 3 & BMI_low == 1",
+#   AUC_grid_DV31_BMIhigh = "DVEST_MPH_tertile == 1 & BMI_low == 0",
+#   AUC_grid_DV32_BMIhigh = "DVEST_MPH_tertile == 2 & BMI_low == 0",
+#   AUC_grid_DV33_BMIhigh = "DVEST_MPH_tertile == 3 & BMI_low == 0"
+# )
 
-AUC_grid_subset_rules_quintile <- list(
-  AUC_grid_DV51_BMIlow = "DV_MPH_quintile == 1 & BMI_low == 1",
-  AUC_grid_DV52_BMIlow = "DV_MPH_quintile == 2 & BMI_low == 1",
-  AUC_grid_DV53_BMIlow = "DV_MPH_quintile == 3 & BMI_low == 1",
-  AUC_grid_DV54_BMIlow = "DV_MPH_quintile == 4 & BMI_low == 1",
-  AUC_grid_DV55_BMIlow = "DV_MPH_quintile == 5 & BMI_low == 1",
-  AUC_grid_DV51_BMIhigh = "DV_MPH_quintile == 1 & BMI_low == 0",
-  AUC_grid_DV52_BMIhigh = "DV_MPH_quintile == 2 & BMI_low == 0",
-  AUC_grid_DV53_BMIhigh = "DV_MPH_quintile == 3 & BMI_low == 0",
-  AUC_grid_DV54_BMIhigh = "DV_MPH_quintile == 4 & BMI_low == 0",
-  AUC_grid_DV55_BMIhigh = "DV_MPH_quintile == 5 & BMI_low == 0"
-)
+roc_grid_given_xtile_fun <- function(
+    df = madymo_nhtsa_df_listwise, 
+    vars = c(DVEST_MPH, BMI), 
+    num_levels = c(3, 3)) {
+temp_df <- df %>%
+  mutate(
+    DVEST_MPH_xtile = as.factor(ntile(DVEST_MPH, 3)),
+    BMI_xtile = as.factor(ntile(BMI, 3))
+  )
+
+# list minima and maxima of each DV xtile
+DVEST_MPH_xtile_min_max <- madymo_nhtsa_df_listwise %>%
+  group_by(DVEST_MPH_tertile) %>%
+  summarise(
+    min = min(DVEST_MPH),
+    max = max(DVEST_MPH)
+  )
+# list minima and maxima of each BMI xtile
+BMI_xtile_min_max <- madymo_nhtsa_df_listwise %>%
+  group_by(BMI_tertile) %>%
+  summarise(
+    min = min(BMI),
+    max = max(BMI)
+  )
+}
 
 
-AUC_grid_models_tertile <- lapply(names(AUC_grid_subset_rules_tertile), function(name) {
-  print(AUC_grid_subset_rules_tertile[[name]])
-  rule <- AUC_grid_subset_rules_tertile[[name]]
+
+# verbose but effectively flexible build of tertile model - will adjust titles of each graph based on ranges determined in tertiling process
+AUC_grid_subset_rules_DV_and_BMI_tertile <- list()
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[1], "-", DV_tertile_min_max$max[1], 
+  ", BMI ", BMI_tertile_min_max$min[1], "-", BMI_tertile_min_max$max[1])]] <-
+  "DVEST_MPH_tertile == 1 & BMI_tertile == 1"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[2], "-", DV_tertile_min_max$max[2], 
+  ", BMI ", BMI_tertile_min_max$min[1], "-", BMI_tertile_min_max$max[1])]] <-
+  "DVEST_MPH_tertile == 2 & BMI_tertile == 1"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[3], "-", DV_tertile_min_max$max[3], 
+  ", BMI ", BMI_tertile_min_max$min[1], "-", BMI_tertile_min_max$max[1])]] <-
+  "DVEST_MPH_tertile == 3 & BMI_tertile == 1"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "All DV",
+  ", BMI ", BMI_tertile_min_max$min[1], "-", BMI_tertile_min_max$max[1])]] <-
+  "BMI_tertile == 1"
+
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[1], "-", DV_tertile_min_max$max[1], 
+  ", BMI ", BMI_tertile_min_max$min[2], "-", BMI_tertile_min_max$max[2])]] <-
+  "DVEST_MPH_tertile == 1 & BMI_tertile == 2"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[2], "-", DV_tertile_min_max$max[2], 
+  ", BMI ", BMI_tertile_min_max$min[2], "-", BMI_tertile_min_max$max[2])]] <-
+  "DVEST_MPH_tertile == 2 & BMI_tertile == 2"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[3], "-", DV_tertile_min_max$max[3], 
+  ", BMI ", BMI_tertile_min_max$min[2], "-", BMI_tertile_min_max$max[2])]] <-
+  "DVEST_MPH_tertile == 3 & BMI_tertile == 2"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "All DV",
+  ", BMI ", BMI_tertile_min_max$min[2], "-", BMI_tertile_min_max$max[2])]] <-
+  "BMI_tertile == 2"
+
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[1], "-", DV_tertile_min_max$max[1], 
+  ", BMI ", BMI_tertile_min_max$min[3], "-", BMI_tertile_min_max$max[3])]] <-
+  "DVEST_MPH_tertile == 1 & BMI_tertile == 3"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[2], "-", DV_tertile_min_max$max[2], 
+  ", BMI ", BMI_tertile_min_max$min[3], "-", BMI_tertile_min_max$max[3])]] <-
+  "DVEST_MPH_tertile == 2 & BMI_tertile == 3"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[3], "-", DV_tertile_min_max$max[3], 
+  ", BMI ", BMI_tertile_min_max$min[3], "-", BMI_tertile_min_max$max[3])]] <-
+  "DVEST_MPH_tertile == 3 & BMI_tertile == 3"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "All DV",
+  ", BMI ", BMI_tertile_min_max$min[3], "-", BMI_tertile_min_max$max[3])]] <-
+  "BMI_tertile == 3"
+
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[1], "-", DV_tertile_min_max$max[1],
+  ", All BMI")]] <- 
+  "DVEST_MPH_tertile == 1"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[2], "-", DV_tertile_min_max$max[2],
+  ", All BMI")]] <- 
+  "DVEST_MPH_tertile == 2"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "DV ", DV_tertile_min_max$min[3], "-", DV_tertile_min_max$max[3],
+  ", All BMI")]] <- 
+  "DVEST_MPH_tertile == 3"
+
+AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
+  "All DV",
+  ", All BMI")]] <- 
+  # need something here to satisfy logical argument requirement of function
+  paste0("DVEST_MPH_tertile %in% c(", 
+         madymo_nhtsa_df_listwise$DVEST_MPH_tertile[1],
+         ":", madymo_nhtsa_df_listwise$DVEST_MPH_tertile[
+           length(madymo_nhtsa_df_listwise$DVEST_MPH_tertile)], ")")
+
+
+  # "All DV, BMI 1" = "BMI_tertile == 1",
+  # "DV 1, BMI 2" = "DVEST_MPH_tertile == 1 & BMI_tertile == 2",
+  # "DV 2, BMI 2" = "DVEST_MPH_tertile == 2 & BMI_tertile == 2",
+  # "DV 3, BMI 2" = "DVEST_MPH_tertile == 3 & BMI_tertile == 2",
+  # "All DV, BMI 2" = "BMI_tertile == 2",
+  # "DV 1, BMI 3" = "DVEST_MPH_tertile == 1 & BMI_tertile == 3",
+  # "DV 2, BMI 3" = "DVEST_MPH_tertile == 2 & BMI_tertile == 3",
+  # "DV 3, BMI 3" = "DVEST_MPH_tertile == 3 & BMI_tertile == 3",
+  # "All DV, BMI 3" = "BMI_tertile == 3"
+
+
+# AUC_grid_subset_rules_quartile <- list(
+#   AUC_grid_DV41_BMIlow = "DVEST_MPH_quartile == 1 & BMI_low == 1",
+#   AUC_grid_DV42_BMIlow = "DVEST_MPH_quartile == 2 & BMI_low == 1",
+#   AUC_grid_DV43_BMIlow = "DVEST_MPH_quartile == 3 & BMI_low == 1",
+#   AUC_grid_DV44_BMIlow = "DVEST_MPH_quartile == 4 & BMI_low == 1",
+#   AUC_grid_DV41_BMIhigh = "DVEST_MPH_quartile == 1 & BMI_low == 0",
+#   AUC_grid_DV42_BMIhigh = "DVEST_MPH_quartile == 2 & BMI_low == 0",
+#   AUC_grid_DV43_BMIhigh = "DVEST_MPH_quartile == 3 & BMI_low == 0",
+#   AUC_grid_DV44_BMIhigh = "DVEST_MPH_quartile == 4 & BMI_low == 0"
+# )
+# 
+# AUC_grid_subset_rules_quintile <- list(
+#   AUC_grid_DV51_BMIlow = "DVEST_MPH_quintile == 1 & BMI_low == 1",
+#   AUC_grid_DV52_BMIlow = "DVEST_MPH_quintile == 2 & BMI_low == 1",
+#   AUC_grid_DV53_BMIlow = "DVEST_MPH_quintile == 3 & BMI_low == 1",
+#   AUC_grid_DV54_BMIlow = "DVEST_MPH_quintile == 4 & BMI_low == 1",
+#   AUC_grid_DV55_BMIlow = "DVEST_MPH_quintile == 5 & BMI_low == 1",
+#   AUC_grid_DV51_BMIhigh = "DVEST_MPH_quintile == 1 & BMI_low == 0",
+#   AUC_grid_DV52_BMIhigh = "DVEST_MPH_quintile == 2 & BMI_low == 0",
+#   AUC_grid_DV53_BMIhigh = "DVEST_MPH_quintile == 3 & BMI_low == 0",
+#   AUC_grid_DV54_BMIhigh = "DVEST_MPH_quintile == 4 & BMI_low == 0",
+#   AUC_grid_DV55_BMIhigh = "DVEST_MPH_quintile == 5 & BMI_low == 0"
+# )
+
+# # with DV tertiles
+# AUC_grid_models_tertile <- lapply(names(AUC_grid_subset_rules_DV_tertile), function(name) {
+#   print(AUC_grid_subset_rules_DV_tertile[[name]])
+#   rule <- AUC_grid_subset_rules_DV_tertile[[name]]
+#   model_eval_fun(
+#     formula = "HIPR ~ HIC15_log",
+#     data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
+#   )
+# })
+# names(AUC_grid_models_tertile) <- names(AUC_grid_subset_rules_DV_tertile)
+# 
+# print(xtab_df_dv_tertile)
+
+# with BMI and DV tertiles
+AUC_grid_models_DV_and_BMI_tertile <- lapply(names(AUC_grid_subset_rules_DV_and_BMI_tertile), function(name) {
+  print(AUC_grid_subset_rules_DV_and_BMI_tertile[[name]])
+  rule <- AUC_grid_subset_rules_DV_and_BMI_tertile[[name]]
   model_eval_fun(
     formula = "HIPR ~ HIC15_log",
     data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
   )
 })
-names(AUC_grid_models_tertile) <- names(AUC_grid_subset_rules_tertile)
-
-print(xtab_df_dv_tertile)
+names(AUC_grid_models_DV_and_BMI_tertile) <- names(AUC_grid_subset_rules_DV_and_BMI_tertile)
 
 
-AUC_grid_models_quartile <- lapply(names(AUC_grid_subset_rules_quartile), function(name) {
-  print(AUC_grid_subset_rules_quartile[[name]])
-  rule <- AUC_grid_subset_rules_quartile[[name]]
-  model_eval_fun(
-    formula = "HIPR ~ HIC15_log",
-    data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
-  )
-})
-names(AUC_grid_models_quartile) <- names(AUC_grid_subset_rules_quartile)
-
-print(xtab_df_dv_quartile)
-
-
-AUC_grid_models_quintile <- lapply(names(AUC_grid_subset_rules_quintile), function(name) {
-  print(AUC_grid_subset_rules_quintile[[name]])
-  rule <- AUC_grid_subset_rules_quintile[[name]]
-  model_eval_fun(
-    formula = "HIPR ~ HIC15_log",
-    data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
-  )
-})
-names(AUC_grid_models_quintile) <- names(AUC_grid_subset_rules_quintile)
-
-print(xtab_df_dv_quintile)
+# AUC_grid_models_quartile <- lapply(names(AUC_grid_subset_rules_quartile), function(name) {
+#   print(AUC_grid_subset_rules_quartile[[name]])
+#   rule <- AUC_grid_subset_rules_quartile[[name]]
+#   model_eval_fun(
+#     formula = "HIPR ~ HIC15_log",
+#     data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
+#   )
+# })
+# names(AUC_grid_models_quartile) <- names(AUC_grid_subset_rules_quartile)
+# 
+# print(xtab_df_dv_quartile)
+# 
+# 
+# AUC_grid_models_quintile <- lapply(names(AUC_grid_subset_rules_quintile), function(name) {
+#   print(AUC_grid_subset_rules_quintile[[name]])
+#   rule <- AUC_grid_subset_rules_quintile[[name]]
+#   model_eval_fun(
+#     formula = "HIPR ~ HIC15_log",
+#     data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
+#   )
+# })
+# names(AUC_grid_models_quintile) <- names(AUC_grid_subset_rules_quintile)
+# 
+# print(xtab_df_dv_quintile)
 
 
 
 # compare models in AUC_grid_models_tertile with roc_grid_fun
-AUC_grid_comparison_df_tertile <- roc_grid_fun(AUC_grid_models_tertile)
-AUC_grid_comparison_df_tertile
+AUC_grid_comparison_df_tertile <- roc_grid_fun(AUC_grid_models_tertile, col_num = 3)
+print(AUC_grid_comparison_df_tertile)
 
 # compare models in AUC_grid_models_tertile with roc_grid_fun
-AUC_grid_comparison_df_quartile <- roc_grid_fun(AUC_grid_models_quartile, col_num = 4)
-AUC_grid_comparison_df_quartile
+AUC_grid_comparison_df_DV_and_BMI_tertile <- roc_grid_fun(AUC_grid_models_DV_and_BMI_tertile, col_num = 4)
+print(AUC_grid_comparison_df_DV_and_BMI_tertile)
 
-# compare models in AUC_grid_models_tertile with roc_grid_fun
-AUC_grid_comparison_df_quintile <- roc_grid_fun(AUC_grid_models_quintile, col_num = 5)
-AUC_grid_comparison_df_quintile
+# # compare models in AUC_grid_models_tertile with roc_grid_fun
+# AUC_grid_comparison_df_quartile <- roc_grid_fun(AUC_grid_models_quartile, col_num = 4)
+# AUC_grid_comparison_df_quartile
+# 
+# # compare models in AUC_grid_models_tertile with roc_grid_fun
+# AUC_grid_comparison_df_quintile <- roc_grid_fun(AUC_grid_models_quintile, col_num = 5)
+# AUC_grid_comparison_df_quintile
 
 
 ```
+
+
+
+
+```{r ROC grid given vars function}
+# creates grid of ROC curves that are split by xtiles (defined in argument) for 2 continuous variables to compare.
+roc_grid_interaction_fun <- function(
+    df, 
+    var1, 
+    var2, 
+    num_levels1 = 3, 
+    num_levels2 = 3, 
+    outcome_var = "HIPR", 
+    predictor = "HIC15_log") {
+  
+  # Create xtiles for both variables
+  var1_name <- deparse(substitute(var1))
+  var2_name <- deparse(substitute(var2))
+  
+  var1_xtile_name <- paste0(var1_name, "_xtile")
+  var2_xtile_name <- paste0(var2_name, "_xtile")
+  
+  # Create temporary df with xtiles
+  temp_df <- df %>%
+    mutate(
+      !!var1_xtile_name := as.factor(ntile({{var1}}, num_levels1)),
+      !!var2_xtile_name := as.factor(ntile({{var2}}, num_levels2))
+    )
+  
+  # Get min/max for each xtile
+  var1_min_max <- temp_df %>%
+    group_by(!!sym(var1_xtile_name)) %>%
+    summarise(
+      min = min(round({{var1}}), na.rm = TRUE),
+      max = max(round({{var1}}), na.rm = TRUE)
+    )
+  
+  var2_min_max <- temp_df %>%
+    group_by(!!sym(var2_xtile_name)) %>%
+    summarise(
+      min = min(round({{var2}}), na.rm = TRUE),
+      max = max(round({{var2}}), na.rm = TRUE)
+    )
+  
+  # Create all combinations of rules in the correct order
+  subset_rules <- list()
+  
+  # 1. Individual cells (var1 levels × var2 levels)
+  for (j in 1:num_levels2) {
+    for (i in 1:num_levels1) {
+      name <- paste0(
+        var1_name, " ", var1_min_max$min[i], "-", var1_min_max$max[i], 
+        ", ", var2_name, " ", var2_min_max$min[j], "-", var2_min_max$max[j]
+      )
+      rule <- paste0(var1_xtile_name, " == ", i, " & ", var2_xtile_name, " == ", j)
+      subset_rules[[name]] <- rule
+    }
+    
+    # 2. Row summaries at end of each row (all var1, fixed var2 level)
+    name <- paste0(
+      "All ", var1_name, 
+      ", ", var2_name, " ", var2_min_max$min[j], "-", var2_min_max$max[j]
+    )
+    rule <- paste0(var2_xtile_name, " == ", j)
+    subset_rules[[name]] <- rule
+  }
+  
+  # 3. Column summaries in last row (fixed var1 level, all var2)
+  for (i in 1:num_levels1) {
+    name <- paste0(
+      var1_name, " ", var1_min_max$min[i], "-", var1_min_max$max[i],
+      ", All ", var2_name
+    )
+    rule <- paste0(var1_xtile_name, " == ", i)
+    subset_rules[[name]] <- rule
+  }
+  
+  # 4. Full model in bottom-right corner (all var1, all var2)
+  name <- paste0("All ", var1_name, ", All ", var2_name)
+  rule <- paste0(var1_xtile_name, " %in% 1:", num_levels1, " & ", 
+                var2_xtile_name, " %in% 1:", num_levels2)
+  subset_rules[[name]] <- rule
+  
+  # Create models for each rule
+  models <- lapply(names(subset_rules), function(name) {
+    rule <- subset_rules[[name]]
+    formula <- paste0(outcome_var, " ~ ", predictor)
+    model_eval_fun(
+      formula = formula,
+      data = subset(temp_df, eval(parse(text = rule)))
+    )
+  })
+  names(models) <- names(subset_rules)
+  
+  # Create ROC grid with correct number of columns
+  roc_grid_fun(models, col_num = num_levels1 + 1)  # +1 for the row summaries
+}
+
+roc_grid_interaction_fun(
+  df = madymo_nhtsa_df_listwise,
+  var1 = DVEST_MPH,
+  var2 = BMI,
+  num_levels1 = 3,
+  num_levels2 = 3
+)
+```
+
+
+
 
 ```{r AUC grid model build by cases, eval=FALSE}
 AUC_grid_subset_rules_tertile_case <- list(
