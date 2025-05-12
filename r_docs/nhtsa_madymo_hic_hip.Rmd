@@ -30,9 +30,8 @@ data_path_2000_2015 <- file.path("data", "NHTSA_databases", "NHTSA All files")
 
 ```{r universal variables}
 min_DV_MPH <- 5
-max_DV_MPH <- 40
+max_DV_MPH <- 65
 ```
-
 
 ```{r general functions}
 # Function to format p-values
@@ -799,7 +798,6 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
   )
 ```
 
-
 ```{r visualize HIC15 and DV_MPH relationship, eval=FALSE}
 
 # scatterplot of HIC15_thousand (10,000 scale) and DV_MPH to see relationship
@@ -1309,6 +1307,16 @@ rm(
 )
 ```
 
+```{r occ, env, sim variable groups}
+# define occupant variables
+occ_vars <- c("SEX_BIN", "AGE", "BMI")
+# define env_vars
+env_vars <- c("WEATHER", "MAKE", "MODELYR", "VEHWGT", "TIME", "VEHTYPE")
+# SIMULATION VARIABLES model
+sim_vars <- c("DV_MPH", "SEATPOS", "BELTUSE_BIN", "BAGDEPLOY_BIN")
+```
+
+
 ```{r listwise models removed missings, eval=FALSE}
 # univariate model
 univariate_model_listwise <- model_eval_fun(
@@ -1319,9 +1327,6 @@ summary(univariate_model_listwise$model)
 
 
 # OCCUPANT VARIABLES model
-
-# define occupant variables
-occ_vars <- c("SEX_BIN", "AGE", "BMI")
 
 # # stepwise multivariate regression model building; delete highest p-value from model until only significant variables remain
 # multivariate_model_listwise_occ <- model_eval_fun(
@@ -1355,8 +1360,7 @@ summary(multivariate_model_listwise_occ$model)
 
 # ENVIRONMENT VARIABLES model
 
-# define env_vars
-env_vars <- c("WEATHER", "MAKE", "MODELYR", "VEHWGT", "TIME", "VEHTYPE")
+
 # exclude MAKE from vars - too many levels, results in NaN p values because insufficient df
 env_vars <- env_vars[-2]
 
@@ -1471,8 +1475,7 @@ multivariate_model_listwise_env <- model_eval_fun(
 
 
 
-# SIMULATION VARIABLES model
-sim_vars <- c("DV_MPH", "SEATPOS", "BELTUSE_BIN", "BAGDEPLOY_BIN")
+
 
 # multivariate_model_listwise_sim <- model_eval_fun(
 #   formula = paste("HIPR ~ HIC15_log + ", paste(sim_vars, collapse = " + ")),
@@ -1517,7 +1520,7 @@ multivariate_model_listwise_final <- model_eval_fun(
   formula = paste(
     "HIPR ~", 
     paste(
-      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5, -6)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = madymo_nhtsa_df_listwise
 )
 summary(multivariate_model_listwise_final$model)
@@ -2049,7 +2052,7 @@ roc_grid_fun <- function(models_obj, col_num = 3) {
     theme_minimal() +
     labs(
       title = "ROC Curves by Model",
-      x = "1 - Specificity (False Positive Rate)",
+      x = paste0("TEST", "\n1 - Specificity (False Positive Rate)"),
       y = "Sensitivity (True Positive Rate)"
     )
 }
@@ -2319,43 +2322,118 @@ roc_grid_interaction_fun <- function(
     num_levels1 = 3, 
     num_levels2 = 3, 
     outcome_var = "HIPR", 
-    predictor = "HIC15_log") {
+    predictor = "HIC15_log",
+    split_x_by_xtile = TRUE,
+    split_x_breaks = NULL,
+    split_y_by_xtile = TRUE,
+    split_y_breaks = NULL) {
   
-  # Create xtiles for both variables
+  # Capture variable names
   var_x_name <- deparse(substitute(var_x))
   var_y_name <- deparse(substitute(var_y))
   
   var_x_xtile_name <- paste0(var_x_name, "_xtile")
   var_y_xtile_name <- paste0(var_y_name, "_xtile")
   
-  # Create temporary df with xtiles
-  temp_df <- df %>%
-    mutate(
-      !!var_x_xtile_name := as.factor(ntile({{var_x}}, num_levels1)),
-      !!var_y_xtile_name := as.factor(ntile({{var_y}}, num_levels2))
-    )
+  # Validate custom breaks if required
+  if (!split_x_by_xtile) {
+    if (is.null(split_x_breaks)) {
+      stop("split_x_breaks must be provided when split_x_by_xtile is FALSE")
+    }
+    if (!is.numeric(split_x_breaks) || length(split_x_breaks) < 2) {
+      stop("split_x_breaks must be a numeric vector of length >= 2")
+    }
+  }
   
-  # Get min/max for each xtile
-  var_x_min_max <- temp_df %>%
-    group_by(!!sym(var_x_xtile_name)) %>%
-    summarise(
-      min = min(round({{var_x}}), na.rm = TRUE),
-      max = max(round({{var_x}}), na.rm = TRUE)
-    )
+  if (!split_y_by_xtile) {
+    if (is.null(split_y_breaks)) {
+      stop("split_y_breaks must be provided when split_y_by_xtile is FALSE")
+    }
+    if (!is.numeric(split_y_breaks) || length(split_y_breaks) < 2) {
+      stop("split_y_breaks must be a numeric vector of length >= 2")
+    }
+  }
   
-  var_y_min_max <- temp_df %>%
-    group_by(!!sym(var_y_xtile_name)) %>%
-    summarise(
-      min = min(round({{var_y}}), na.rm = TRUE),
-      max = max(round({{var_y}}), na.rm = TRUE)
-    )
+  # Create temporary df with xtiles or custom splits
+  temp_df <- df
   
-  # Create all combinations of rules in the correct order
+  # Handle var_x splitting
+  if (split_x_by_xtile) {
+    temp_df <- temp_df %>%
+      mutate(!!var_x_xtile_name := as.factor(ntile({{var_x}}, num_levels1)))
+  } else {
+    temp_df <- temp_df %>%
+      mutate(
+        !!var_x_xtile_name := as.numeric(cut({{var_x}}, 
+                                          breaks = split_x_breaks, 
+                                          include.lowest = TRUE, 
+                                          right = TRUE))
+      ) %>%
+      mutate(!!var_x_xtile_name := as.factor(!!sym(var_x_xtile_name)))
+  }
+  
+  # Handle var_y splitting
+  if (split_y_by_xtile) {
+    temp_df <- temp_df %>%
+      mutate(!!var_y_xtile_name := as.factor(ntile({{var_y}}, num_levels2)))
+  } else {
+    temp_df <- temp_df %>%
+      mutate(
+        !!var_y_xtile_name := as.numeric(cut({{var_y}}, 
+                                           breaks = split_y_breaks, 
+                                           include.lowest = TRUE, 
+                                           right = TRUE))
+      ) %>%
+      mutate(!!var_y_xtile_name := as.factor(!!sym(var_y_xtile_name)))
+  }
+  
+  # Determine number of levels for each variable
+  n_level_x <- if (split_x_by_xtile) num_levels1 else (length(split_x_breaks) - 1)
+  n_level_y <- if (split_y_by_xtile) num_levels2 else (length(split_y_breaks) - 1)
+  
+  # Get min/max for each xtile or split
+  # For var_x
+  if (split_x_by_xtile) {
+    var_x_min_max <- temp_df %>%
+      group_by(!!sym(var_x_xtile_name)) %>%
+      summarise(
+        min = min(round({{var_x}}), na.rm = TRUE),
+        max = max(round({{var_x}}), na.rm = TRUE)
+      )
+  } else {
+    n_x <- length(split_x_breaks) - 1
+    var_x_min_max <- data.frame(
+      level = 1:n_x,
+      min = split_x_breaks[1:n_x],
+      max = split_x_breaks[2:(n_x + 1)]
+    )
+    colnames(var_x_min_max)[1] <- var_x_xtile_name
+  }
+  
+  # For var_y
+  if (split_y_by_xtile) {
+    var_y_min_max <- temp_df %>%
+      group_by(!!sym(var_y_xtile_name)) %>%
+      summarise(
+        min = min(round({{var_y}}), na.rm = TRUE),
+        max = max(round({{var_y}}), na.rm = TRUE)
+      )
+  } else {
+    n_y <- length(split_y_breaks) - 1
+    var_y_min_max <- data.frame(
+      level = 1:n_y,
+      min = split_y_breaks[1:n_y],
+      max = split_y_breaks[2:(n_y + 1)]
+    )
+    colnames(var_y_min_max)[1] <- var_y_xtile_name
+  }
+  
+  # Create all combinations of subset rules
   subset_rules <- list()
   
   # 1. Individual cells (var_x levels × var_y levels)
-  for (j in 1:num_levels2) {
-    for (i in 1:num_levels1) {
+  for (j in 1:n_level_y) {
+    for (i in 1:n_level_x) {
       name <- paste0(
         var_x_lab, " ", var_x_min_max$min[i], "-", var_x_min_max$max[i], 
         ", ", var_y_lab, " ", var_y_min_max$min[j], "-", var_y_min_max$max[j]
@@ -2364,7 +2442,7 @@ roc_grid_interaction_fun <- function(
       subset_rules[[name]] <- rule
     }
     
-    # 2. Row summaries at end of each row (all var_x, fixed var_y level)
+    # 2. Row summaries (all var_x, fixed var_y level)
     name <- paste0(
       "All ", var_x_lab, 
       ", ", var_y_lab, " ", var_y_min_max$min[j], "-", var_y_min_max$max[j]
@@ -2373,8 +2451,8 @@ roc_grid_interaction_fun <- function(
     subset_rules[[name]] <- rule
   }
   
-  # 3. Column summaries in last row (fixed var_x level, all var_y)
-  for (i in 1:num_levels1) {
+  # 3. Column summaries (fixed var_x level, all var_y)
+  for (i in 1:n_level_x) {
     name <- paste0(
       var_x_lab, " ", var_x_min_max$min[i], "-", var_x_min_max$max[i],
       ", All ", var_y_lab
@@ -2383,13 +2461,13 @@ roc_grid_interaction_fun <- function(
     subset_rules[[name]] <- rule
   }
   
-  # 4. Full model in bottom-right corner (all var_x, all var_y)
+  # 4. Full model (all var_x, all var_y)
   name <- paste0("All ", var_x_lab, ", All ", var_y_lab)
-  rule <- paste0(var_x_xtile_name, " %in% 1:", num_levels1, " & ", 
-                var_y_xtile_name, " %in% 1:", num_levels2)
+  rule <- paste0(var_x_xtile_name, " %in% 1:", n_level_x, " & ", 
+                var_y_xtile_name, " %in% 1:", n_level_y)
   subset_rules[[name]] <- rule
   
-  # Create models for each rule
+  # Create models for each subset
   models <- lapply(names(subset_rules), function(name) {
     rule <- subset_rules[[name]]
     formula <- paste0(outcome_var, " ~ ", predictor)
@@ -2400,8 +2478,8 @@ roc_grid_interaction_fun <- function(
   })
   names(models) <- names(subset_rules)
   
-  # Create ROC grid with correct number of columns
-  roc_grid_fun(models, col_num = num_levels1 + 1)  # +1 for the row summaries
+  # Generate ROC grid with adjusted columns
+  roc_grid_fun(models, col_num = n_level_x + 1)
 }
 
 roc_grid_interaction_fun(
@@ -2410,8 +2488,15 @@ roc_grid_interaction_fun(
   var_y = BMI,
   var_x_lab = "Delta V",
   var_y_lab = "BMI",
-  num_levels1 = 3,
-  num_levels2 = 3
+  split_x_by_xtile = TRUE,
+  split_y_by_xtile = FALSE,
+  split_y_breaks = c(
+    # minimum value of madymo_nhtsa_df_listwise$DVEST_MPH
+    min(madymo_nhtsa_df_listwise$DVEST_MPH),
+    30, 
+    max(madymo_nhtsa_df_listwise$DVEST_MPH)
+  ),  # Custom splits for var_y
+  num_levels2 = 2
 )
 ```
 
@@ -2545,75 +2630,75 @@ model_objs_listwise_stepwise_bmi <- list(
 # for categorical variables, chisq.test (if less than 5, fisher.test)
 baseline_desc_fun <- function(df) {
   # Create cases and controls data frames
-cases_df <- df %>% filter(HIPR == 1)
-controls_df <- df %>% filter(HIPR == 0)
-
-# Define variables with labels and types
-baseline_vars <- list(
-  list(var_name = "DV_MPH", label = "Delta V (mph)", type = "continuous"),
-  list(var_name = "SEATPOS", label = "Seat Position", type = "categorical"),
-  list(var_name = "BELTUSE_BIN", label = "Belt Use (%)", type = "categorical"),
-  list(var_name = "BAGDEPLOY_BIN", label = "Airbag Deployment (%)", type = "categorical"),
-  list(var_name = "AGE", label = "Age", type = "continuous"),
-  list(var_name = "BMI", label = "BMI in kg/m²", type = "continuous"),
-  list(var_name = "SEX_BIN", label = "Sex (%)", type = "categorical"),
-  list(var_name = "ALCINV", label = "Alcohol Involvement (%)", type = "categorical"),
-  list(var_name = "WEATHER", label = "Weather Conditions (%)", type = "categorical"),
-  list(var_name = "VEHWGT", label = "Vehicle Weight (lbs)", type = "continuous"),
-  # list(var_name = "MAKE", label = "Vehicle Make", type = "categorical"),
-  list(var_name = "MODELYR", label = "Vehicle Model Year", type = "continuous"),
-  list(var_name = "TIME_cat", label = "Time of Day", type = "categorical"),
-  list(var_name = "VEHTYPE", label = "Vehicle Type", type = "categorical")
-)
-
-# Initialize empty dataframe for results
-baseline_descriptives <- data.frame(
-  Characteristic = character(),
-  Value = character(),
-  Control = character(),
-  Case = character(),
-  P_Value = character(),
-  stringsAsFactors = FALSE
-)
-
-
-# Process each variable
-for (var in baseline_vars) {
-  if (var$type == "continuous") {
-    # Continuous variables
-    case_mean <- mean(cases_df[[var$var_name]], na.rm = TRUE)
-    case_sd <- sd(cases_df[[var$var_name]], na.rm = TRUE)
-    control_mean <- mean(controls_df[[var$var_name]], na.rm = TRUE)
-    control_sd <- sd(controls_df[[var$var_name]], na.rm = TRUE)
-    
-    p_value <- t.test(cases_df[[var$var_name]], controls_df[[var$var_name]])$p.value
-    
-    baseline_descriptives <- rbind(
-      baseline_descriptives,
-      data.frame(
-        Characteristic = var$label,
-        Value = "Mean (SD)",
-        Control = sprintf("%.1f (%.1f)", control_mean, control_sd),
-        Case = sprintf("%.1f (%.1f)", case_mean, case_sd),
-        P_Value = format_p(p_value),
-        stringsAsFactors = FALSE
+  cases_df <- df %>% filter(HIPR == 1)
+  controls_df <- df %>% filter(HIPR == 0)
+  
+  # Define variables with labels and types
+  baseline_vars <- list(
+    list(var_name = "DV_MPH", label = "Delta V (mph)", type = "continuous"),
+    list(var_name = "SEATPOS", label = "Seat Position", type = "categorical"),
+    list(var_name = "BELTUSE_BIN", label = "Belt Use (%)", type = "categorical"),
+    list(var_name = "BAGDEPLOY_BIN", label = "Airbag Deployment (%)", type = "categorical"),
+    list(var_name = "AGE", label = "Age", type = "continuous"),
+    list(var_name = "BMI", label = "BMI in kg/m²", type = "continuous"),
+    list(var_name = "SEX_BIN", label = "Sex (%)", type = "categorical"),
+    list(var_name = "ALCINV", label = "Alcohol Involvement (%)", type = "categorical"),
+    list(var_name = "WEATHER", label = "Weather Conditions (%)", type = "categorical"),
+    list(var_name = "VEHWGT", label = "Vehicle Weight (lbs)", type = "continuous"),
+    # list(var_name = "MAKE", label = "Vehicle Make", type = "categorical"),
+    list(var_name = "MODELYR", label = "Vehicle Model Year", type = "continuous"),
+    list(var_name = "TIME_cat", label = "Time of Day", type = "categorical"),
+    list(var_name = "VEHTYPE", label = "Vehicle Type", type = "categorical")
+  )
+  
+  # Initialize empty dataframe for results
+  baseline_descriptives <- data.frame(
+    Characteristic = character(),
+    Value = character(),
+    Control = character(),
+    Case = character(),
+    P_Value = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  
+  # Process each variable
+  for (var in baseline_vars) {
+    if (var$type == "continuous") {
+      # Continuous variables
+      case_mean <- mean(cases_df[[var$var_name]], na.rm = TRUE)
+      case_sd <- sd(cases_df[[var$var_name]], na.rm = TRUE)
+      control_mean <- mean(controls_df[[var$var_name]], na.rm = TRUE)
+      control_sd <- sd(controls_df[[var$var_name]], na.rm = TRUE)
+      
+      p_value <- t.test(cases_df[[var$var_name]], controls_df[[var$var_name]])$p.value
+      
+      baseline_descriptives <- rbind(
+        baseline_descriptives,
+        data.frame(
+          Characteristic = var$label,
+          Value = "Mean (SD)",
+          Control = sprintf("%.1f (%.1f)", control_mean, control_sd),
+          Case = sprintf("%.1f (%.1f)", case_mean, case_sd),
+          P_Value = format_p(p_value),
+          stringsAsFactors = FALSE
+        )
       )
-    )
-  } else {
-    # Ensure the variable is treated as a factor with all levels including NA
-    current_var <- df[[var$var_name]]
-    if (!is.factor(current_var)) {
-      current_var <- factor(current_var)
-    }
-    
-    # Check if there are any NAs in the full dataset
-    has_na <- anyNA(current_var)
-    
-    # If NAs exist, add NA as a level; otherwise, keep original levels
-    if (has_na) {
-      current_var <- addNA(current_var)
-    }
-    all_levels <- levels(current_var)
+    } else {
+      # Ensure the variable is treated as a factor with all levels including NA
+      current_var <- df[[var$var_name]]
+      if (!is.factor(current_var)) {
+        current_var <- factor(current_var)
+      }
+      
+      # Check if there are any NAs in the full dataset
+      has_na <- anyNA(current_var)
+      
+      # If NAs exist, add NA as a level; otherwise, keep original levels
+      if (has_na) {
+        current_var <- addNA(current_var)
+      }
+      all_levels <- levels(current_var)
       
       # Get counts and percentages with factors
       case_factor <- factor(cases_df[[var$var_name]], levels = all_levels)
@@ -2671,15 +2756,15 @@ for (var in baseline_vars) {
       }
     }
   }
-
-# View the final table
-print(baseline_descriptives)
+  
+  # View the final table
+  print(baseline_descriptives)
 }
 ```
 
 ```{r baseline descriptives listwise}
 baseline_desc_fun(madymo_nhtsa_df_listwise)
-baseline_desc_fun(madymo_nhtsa_df)
+# baseline_desc_fun(madymo_nhtsa_df)
 ```
 
 
@@ -2703,7 +2788,7 @@ saveRDS(imputed_data, file = file.path("data", "imputed_data.rds"))
 vroom::vroom_write(madymo_nhtsa_df_imp, file = file.path("data", "madymo_nhtsa_df_mice.csv"))
 ```
 
-```{r imputation objecst}
+```{r imputation objects}
 # load imputed_data
 imputed_data <- readRDS(file = file.path("data", "imputed_data.rds"))
 
@@ -2844,15 +2929,13 @@ fit_univariate_imp <- with(imputed_data, svyglm(
 summary(pool(fit_univariate))
 ```
 
-```{r multivariate imputed models}
-# temporarily on hold while building pre-imputation models
 
-# current state: starting at fit_multivariate_max_simple, uses old model building system
-# function that directly follows is most recent attempt to build a function that takes in string of formula and outputs results
 
+
+```{r imputed model functions}
 # maximal model to build from
 # Fit multivariate model across imputations
-multi_imp_model_fun <- function(formula_as_text = "HIPR ~ HIC15_log") {
+imp_model_fun <- function(formula_as_text = "HIPR ~ HIC15_log") {
   fits <- lapply(madymo_nhtsa_df_imp2, function(dataset) {
     # Rebuild survey design for THIS imputed dataset
     design_imp <- svydesign(
@@ -2871,77 +2954,86 @@ multi_imp_model_fun <- function(formula_as_text = "HIPR ~ HIC15_log") {
   })
 }
 
-multi_results_fun <- function(formula_as_text = "HIPR ~ HIC15_log") {
-  model_list <- multi_imp_model_fun(formula_as_text)
+imp_model_results_fun <- function(formula_as_text = "HIPR ~ HIC15_log") {
+  model_list <- imp_model_fun(formula_as_text)
   pooled_results <- pool(model_list)
-  summary(pooled_results)
+  results_summary <- summary(pooled_results)
+  
+  # create significant stars
+  results_summary$stars <- cut(
+    results_summary$p.value,
+    breaks = c(-Inf, 0.001, 0.01, 0.05, Inf),
+    labels = c("***", "**", "*", ""),
+    right = FALSE
+  )
+  
+  # format p-values to be legible
+  results_summary$p.value <- format_p(results_summary$p.value)
+  
+  print(results_summary)
 }
-
-
-# defaults to giving univariate model, argument can be another formula for other models
-# outputs table with results
-multi_results_fun()
-
-
-
-# Convert to "mira" object (required for mice::pool)
-fit_multivariate_max <- as.mira(fit_multivariate_max)
-summary(pool(fit_multivariate_max))
-
-
-
-# simple form of maximal multivariate model
-fit_multivariate_max_simple <- with(imputed_data, svyglm(
-    HIPR ~ HIC15_log + SEX_BIN + AGE + BMI + ALCINV + DRGINV + 
-      VEHWGT + MODELYR + TIME + VEHTYPE + DV_MPH + BAGDEPLOY_BIN + 
-      BELTUSE_BIN + SEATPOS,
-    family = quasibinomial,
-    design = survey_design
-  ))
-summary(pool(fit_multivariate_max_simple))
-
-
-# adjust these once main model is figured out
-
-
-# model including occupant variables
-fit_multivariate_occ <- with(imputed_data, svyglm(
-  HIPR ~ HIC15_log + 
-    SEX_BIN + AGE + BMI,
-  data = madymo_nhtsa_df, 
-  family = quasibinomial,
-  design = survey_design))
-summary(pool(fit_multivariate_occ))
-
-# model including environment variables
-fit_multivariate_env <- with(imputed_data, svyglm(
-  HIPR ~ HIC15_log + 
-    ALCINV + DRGINV + VEHWGT + MODELYR + TIME + VEHTYPE,
-  data = madymo_nhtsa_df, 
-  family = quasibinomial,
-  design = survey_design))
-summary(pool(fit_multivariate_env))
-
-# model including simulation variables
-fit_multivariate_sim <- with(imputed_data, svyglm(
-  HIPR ~ HIC15_log + 
-    DV_MPH + BAGDEPLOY_BIN + BELTUSE_BIN + DV_MPH + SEATPOS,
-  data = madymo_nhtsa_df, 
-  family = quasibinomial,
-  design = survey_design))
-summary(pool(fit_multivariate_sim))
-
-
-
-# print all models in ascending complexity (for showing Maurice, with simple max model)
-summary(pool(fit_univariate))
-summary(pool(fit_multivariate_occ))
-summary(pool(fit_multivariate_env))
-summary(pool(fit_multivariate_sim))
-summary(pool(fit_multivariate_max_simple))
 ```
 
-```{r build model_eval_fun objects}
+```{r imputed models, eval=FALSE}
+# defaults to giving univariate model, argument can be another formula for other models
+# outputs table with results
+sample_imp_fit <- imp_model_fun()
+imp_model_results_fun()
+imp_model_results_fun("HIPR ~ HIC15_log + BMI + DV_MPH")
+
+# # model including occupant variables
+# occ_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(occ_vars, collapse = " + ")))
+# 
+# # omit SEX_BIN
+# occ_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(occ_vars[-1], collapse = " + ")))
+
+# omit AGE
+occ_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(occ_vars[c(-1, -2)], collapse = " + ")))
+
+
+# model including environment variables
+env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars, collapse = " + ")))
+
+# omit WEATHER
+env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1)], collapse = " + ")))
+
+# omit MAKE
+env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2)], collapse = " + ")))
+
+# omit MODELYR
+env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2, -3)], collapse = " + ")))
+
+# omit VEHWGT
+env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2, -3, -4)], collapse = " + ")))
+
+# omit TIME
+env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2, -3, -4, -5)], collapse = " + ")))
+# VEHTYPE is significant at all levels
+
+
+# model including simulation variables
+sim_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(sim_vars, collapse = " + ")))
+
+# omit SEATPOS
+sim_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(sim_vars[c(-2)], collapse = " + ")))
+
+# omit BAGDEPLOY_BIN
+sim_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(sim_vars[c(-2, -4)], collapse = " + ")))
+# DV_MPH and BELTUSE_BIN are significant
+
+
+# model including all variables
+final_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(c(occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-2, -4)]), collapse = " + ")))
+
+
+# model differs from listwise-deleted model, so will ignore it going forward
+```
+
+
+
+
+
+```{r build model_eval_fun objects, eval=FALSE}
 fit_univariate_eval <- model_eval_imp(
   survey_design, 
   fit_univariate
@@ -2974,7 +3066,7 @@ fit_multivariate_max_eval_simple <- model_eval_imp(
 ```
 
 
-```{r comparing model performance}
+```{r comparing model performance, eval=FALSE}
 compared_models <- c(
   "fit_univariate", 
   "fit_multivariate_occ",
