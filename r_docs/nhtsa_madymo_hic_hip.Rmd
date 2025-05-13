@@ -3,7 +3,7 @@ output: html_document
 editor_options: 
   chunk_output_type: console
 ---
-```{r, setup}
+```{r setup, include=FALSE}
 library(tidyverse)
 library(haven)
 library(survey)
@@ -28,19 +28,21 @@ knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 data_path_2000_2015 <- file.path("data", "NHTSA_databases", "NHTSA All files")
 ```
 
-```{r universal variables}
+```{r universal variables, include=FALSE}
 min_DV_MPH <- 5
 max_DV_MPH <- 65
+
+bmi_cutoff <- 30 # could be 32, better sens and spec, but fewer for splitting by DV_MPH in higher levels
 ```
 
-```{r general functions}
+```{r general functions, include=FALSE}
 # Function to format p-values
 format_p <- function(p) {
   ifelse(p < 0.001, "<0.001", round(p, digits = 3))
 }
 ```
 
-```{r get MADYMO HIC values and build MADYMO dataframe, eval=FALSE}
+```{r get MADYMO HIC values and build MADYMO dataframe, eval=FALSE, include=FALSE}
 # create dataframe with MADYMO data
 BELTUSE_BIN <- c(0, 1)
 BAGDEPLOY_BIN <- c(0, 1)
@@ -267,7 +269,7 @@ vroom::vroom_write(MADYMO_df, file = file.path("data", "MADYMO_df.csv"))
 
 ```
 
-```{r create nhtsa dataframe, eval=FALSE}
+```{r create nhtsa dataframe, eval=FALSE, include=FALSE}
 # Helper function to process data for each year
 vehicle_count <- 0
 individual_count <- 0
@@ -407,7 +409,11 @@ vroom::vroom_write(nhtsa_combined_df, file = file.path("data", "nhtsa_combined_d
 
 ```
 
-```{r clean and filter nhtsa dataframe}
+
+### Filtering and cleaning NHTSA data
+
+
+```{r clean and filter nhtsa dataframe, echo=FALSE}
 # read nhtsa_combined_df.csv with vroom
 nhtsa_combined_df <- vroom::vroom(file.path("data", "nhtsa_combined_df_saved.csv"))
 
@@ -512,12 +518,12 @@ data_counts <- c(
 criteria_list <- c(
     criteria_list,
     before_AGE = paste0(
-    "Count before AGE >= 20: ", 
+    "Count before any filters: ", 
     data_counts$before_AGE)
   )
-print(
-  criteria_list$before_AGE
-  )
+# print(
+#   criteria_list$before_AGE
+#   )
 # filter out cases by in- and exclusion criteria
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
@@ -532,12 +538,12 @@ data_counts <- c(
 criteria_list <- c(
     criteria_list,
     before_seatpos = paste0(
-    "Count before SEATPOS %in% c(11, 13): ", 
+    "Count after AGE >= 20: ", 
     data_counts$before_seatpos)
   )
-print(
-  criteria_list$before_seatpos
-  )
+# print(
+#   criteria_list$before_seatpos
+#   )
 
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
@@ -552,12 +558,12 @@ before_events = nrow(nhtsa_combined_df)
 criteria_list <- c(
     criteria_list,
     before_events = paste0(
-    "Count before EVENTS == 1: ", 
+    "Count after SEATPOS %in% c(11, 13): ", 
     data_counts$before_events)
   )
-print(
-  criteria_list$before_events
-  )
+# print(
+#   criteria_list$before_events
+#   )
 
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
@@ -572,12 +578,12 @@ before_DOF1 = nrow(nhtsa_combined_df)
 criteria_list <- c(
     criteria_list,
     before_DOF1 = paste0(
-    "Count before DOF1 %in% c(1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92): ", 
+    "Count after EVENTS == 1: ", 
     data_counts$before_DOF1)
   )
-print(
-  criteria_list$before_DOF1
-  )
+# print(
+#   criteria_list$before_DOF1
+#   )
 
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
@@ -594,12 +600,12 @@ before_DVEST = nrow(nhtsa_combined_df)
 criteria_list <- c(
     criteria_list,
     before_DVEST_MPH = paste0(
-    "Count before DVEST_MPH >= ", min_DV_MPH, " & DVEST_MPH <= ", max_DV_MPH, ": ", 
+    "Count after DOF1 %in% c(1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92): ", 
     data_counts$before_DVEST_MPH)
   )
-print(
-  criteria_list$before_DVEST_MPH
-  )
+# print(
+#   criteria_list$before_DVEST_MPH
+#   )
 
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
@@ -614,12 +620,12 @@ before_BELTUSE_BIN = nrow(nhtsa_combined_df)
 criteria_list <- c(
     criteria_list,
     before_BELTUSE_BIN = paste0(
-    "Count before !is.na(BELTUSE_BIN): ", 
+    "Count after DVEST_MPH >= ", min_DV_MPH, " & DVEST_MPH <= ", max_DV_MPH, ": ", 
     data_counts$before_BELTUSE_BIN)
   )
-print(
-  criteria_list$before_BELTUSE_BIN
-  )
+# print(
+#   criteria_list$before_BELTUSE_BIN
+#   )
 
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
@@ -634,12 +640,12 @@ before_BAGDEPLOY_BIN = nrow(nhtsa_combined_df)
 criteria_list <- c(
     criteria_list,
     before_BAGDEPLOY_BIN = paste0(
-    "Count before !is.na(BAGDEPLOY_BIN): ", 
+    "Count after !is.na(BELTUSE_BIN): ", 
     data_counts$before_BAGDEPLOY_BIN)
   )
-print(
-  criteria_list$before_BAGDEPLOY_BIN
-  )
+# print(
+#   criteria_list$before_BAGDEPLOY_BIN
+#   )
 
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
@@ -654,12 +660,12 @@ before_CONCUSSION = nrow(nhtsa_combined_df)
 criteria_list <- c(
     criteria_list,
     before_CONCUSSION = paste0(
-    "Count before !is.na(CONCUSSION): ", 
+    "Count after !is.na(BAGDEPLOY_BIN): ", 
     data_counts$before_CONCUSSION)
   )
-print(
-  criteria_list$before_CONCUSSION
-  )
+# print(
+#   criteria_list$before_CONCUSSION
+#   )
 
 nhtsa_combined_df <- nhtsa_combined_df %>%
   filter(
@@ -674,19 +680,19 @@ data_counts <- c(
 criteria_list <- c(
     criteria_list,
     after_filters = paste0(
-    "All entries all years after filters:", 
+    "FINAL COUNT after !is.na(CONCUSSION):", 
     data_counts$after_filters)
   )
-print(
-  criteria_list$after_filters
-  )
+# print(
+#   criteria_list$after_filters
+#   )
 
 # add categorical MAIS variable
-nhtsa_combined_df <- nhtsa_combined_df %>%
-  mutate(
-    MAIS_cat = as.factor(MAIS),
-    DV_MPH_BIN = as.factor(ifelse(DV_MPH <20, 0, 1))
-  )
+# nhtsa_combined_df <- nhtsa_combined_df %>%
+#   mutate(
+#     MAIS_cat = as.factor(MAIS),
+#     DV_MPH_BIN = as.factor(ifelse(DV_MPH <20, 0, 1))
+#   )
 
 # add HIPR var from CONCUSSION for nhtsa project
 nhtsa_combined_df <- nhtsa_combined_df %>%
@@ -705,7 +711,7 @@ nhtsa_combined_df <- nhtsa_combined_df %>%
 
 # make appropriate variables into factors
 cols_all <- sort(colnames(nhtsa_combined_df))
-cols_factor <- c("BAGDEPLY", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI_HIGH", "CONCUSSION", "DVEST", "HIPR", "ID", "INJURED", "MAIS", "MAIS_cat", "MANUSE", "OBJCONT1", "OBJCONT2", "OCCNO", "OI", "PSU", "PSUSTRAT", "ROLLOVER", "SEATPOS", "SEX_BIN", "VEHNO", "VEHTYPE", "YEAR", "ALCINV", "DEATH", "DRGINV", "MAKE", "WEATHER")
+cols_factor <- c("BAGDEPLY", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI_HIGH", "CONCUSSION", "DVEST", "HIPR", "ID", "INJURED", "MAIS", "OCCNO", "OI", "PSU", "PSUSTRAT", "ROLLOVER", "SEATPOS", "SEX_BIN", "VEHNO", "VEHTYPE", "YEAR", "ALCINV", "DEATH", "DRGINV", "MAKE", "WEATHER")
 nhtsa_combined_df[cols_factor] <- lapply(nhtsa_combined_df[cols_factor], factor)
 
 cols_explore <- c(cols_factor, "AGE", "BMI", "DV_MPH", "DVEST", "DVEST_MPH", "DVBASIS")
@@ -723,7 +729,7 @@ summary(explore_df)
 rm(explore_df)
 ```
 
-```{r join MADYMO data}
+```{r join MADYMO data, include=FALSE}
 # exclude NA values for some variables
 # nhtsa_combined_df <- nhtsa_combined_df %>%
 #   subset(
@@ -750,7 +756,7 @@ rm(
 
 ```
 
-```{r vars into strings}
+```{r vars into strings, include=FALSE}
 # replace weather numbers with strings
 madymo_nhtsa_df$WEATHER <- as.character(madymo_nhtsa_df$WEATHER)
 madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 0] <- "no adverse conditions"
@@ -798,7 +804,7 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
   )
 ```
 
-```{r visualize HIC15 and DV_MPH relationship, eval=FALSE}
+```{r visualize HIC15 and DV_MPH relationship, eval=FALSE, include=FALSE}
 
 # scatterplot of HIC15_thousand (10,000 scale) and DV_MPH to see relationship
 ggplot(madymo_nhtsa_df, aes(y = HIC15, x = DV_MPH)) +
@@ -826,7 +832,7 @@ ggplot(madymo_nhtsa_df, aes(y = log(HIC15), x = DV_MPH)) +
   geom_smooth(method = "lm")
 ```
 
-```{r add HIC15 transform vars}
+```{r add HIC15 transform vars, include=FALSE}
 # transform/scale HIC15 to see if numbers are more legible
 madymo_nhtsa_df$HIC15_thousand <-
   madymo_nhtsa_df$HIC15/1000
@@ -840,7 +846,7 @@ madymo_nhtsa_df$HIC15_sqrt <-
   sqrt(madymo_nhtsa_df$HIC15)
 ```
 
-```{r print summary of relevant variables}
+```{r print summary of relevant variables, include=FALSE}
 # before beginning resource-intensive multiple imputation, make sure to only keep relevant columns
 columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "HEIGHT", "WEIGHT", "DV_MPH", "DVEST_MPH", "BODYTYPE", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "TIME_cat", "VEHTYPE", "HIC15", "HIC15_log")
 
@@ -853,7 +859,11 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
 summary(madymo_nhtsa_df)
 ```
 
-```{r extreme variables}
+
+### Extreme variable investigation
+
+
+```{r extreme variables, echo=FALSE}
 # preserve madymo_nhtsa_df before removing extreme values
 madymo_nhtsa_df_full <- madymo_nhtsa_df
 # examine extreme values
@@ -873,12 +883,9 @@ print(extreme_values, n = 23)
 # create list of IDs with omittable values
 extreme_value_ids <- c()
 
-# MODELYR values all reasonable
-# all MADYMO measurements come from simulation, not subject to incorrect input
-# YEAR was inches before 1993, but this is not included in the dataset
-# WEIGHT and HEIGHT were imperial (pounds and inches) before 1993, but that is not relevant for this dataset
-# WEIGHT has maximum 150, all values above 150 are combined
-# HEIGHT has maximum 220, all values over 200 are combined
+
+cat(paste("MODELYR values all reasonable", "all MADYMO measurements come from simulation, not subject to incorrect input", "YEAR was inches before 1993, but this is not included in the dataset", "WEIGHT and HEIGHT were imperial (pounds and inches) before 1993, but that is not relevant for this dataset", "WEIGHT has maximum 150, all values above 150 are combined", "HEIGHT has maximum 220, all values over 200 are combined", sep = "<br>"))
+
 
 # investigate BMI (instead of HEIGHT and WEIGHT separately - helps identify unusual values)
 bmi_df <- madymo_nhtsa_df %>%
@@ -956,16 +963,14 @@ rm(
   extreme_value_ids,
   extreme_values_df,
   extreme_values,
-  extreme_value_ids,
   vehwgt_df,
   vehwgt_extreme_df,
   vehwgt_extreme_count,
-  bmi_df,
-  explore_df
+  bmi_df
 )
 ```
 
-```{r functions for survey model evaluation}
+```{r functions for survey model evaluation, include=FALSE}
 # function to print and examine ROC curve, AUC, and other metrics
 model_eval_fun <- function(formula = "HIPR ~ HIC15_log", data = madymo_nhtsa_df) {
   # Extract required components from survey design
@@ -990,7 +995,7 @@ model_eval_fun <- function(formula = "HIPR ~ HIC15_log", data = madymo_nhtsa_df)
 
   
   # Create weighted ROC object
-  mycurve <- wroc(
+  invisible(mycurve <- wroc(
     response.var = "y",
     phat.var = "phat",
     weights.var = "weights",
@@ -998,7 +1003,7 @@ model_eval_fun <- function(formula = "HIPR ~ HIC15_log", data = madymo_nhtsa_df)
     tag.event = levels(roc_data$y)[2],
     tag.nonevent = levels(roc_data$y)[1],
     cutoff.method = "Youden"
-  )
+  ))
   
   # Calculate prevalence of the event
   event_level <- levels(roc_data$y)[2]
@@ -1049,10 +1054,10 @@ compare_df_fun <- function(models) {
     # Extract the AUC and other metrics
     # β <- get(model)$model$coefficients
     auc <- get(model)$metrics$AUC
-    optimal_cutoff <- get(model)$metrics$Optimal_Cutoff
+    # optimal_cutoff <- get(model)$metrics$Optimal_Cutoff
     sensitivity <- get(model)$metrics$Sensitivity
     specificity <- get(model)$metrics$Specificity
-    correlation <- get(model)$metrics$Correlation
+    # correlation <- get(model)$metrics$Correlation
     # get n.event from mycurve$basics 
     num_cases <- get(model)$metrics$Cases
     # count number of HIPR == 0
@@ -1069,17 +1074,17 @@ compare_df_fun <- function(models) {
       Model = model,
       
       AUC = auc,
-      Optimal_Cutoff = optimal_cutoff,
+      # Optimal_Cutoff = optimal_cutoff,
       # how to interpret results as cutoff of injury for HIC15
       # Optimal_Cutoff_log = (optimal_cutoff),
       Sensitivity = sensitivity,
       Specificity = specificity,
-      Correlation = correlation,
+      # Correlation = correlation,
       Cases = num_cases,
       Controls = num_controls,
-      Beta = beta,
-      SE = se,
-      P_value = p_value
+      HIC_Beta = beta,
+      HIC_SE = se,
+      HIC_P_value = format_p(p_value)
     )
     
     # Append the new row to the comparison dataframe
@@ -1089,9 +1094,10 @@ compare_df_fun <- function(models) {
 }
 ```
 
-```{r compare extreme adjustments, eval=FALSE}
+```{r compare extreme adjustments, eval=FALSE, include=FALSE}
 # create two models, one before extreme adjustment (madymo_nhtsa_df_full) and one after (updated madymo_nhtsa_df)
 # use model_eval_fun function on both models to create ROC curves and AUC
+# doesn't work with incomplete variables, so next line throws error
 model_eval_full <- model_eval_fun(
   formula = "HIPR ~ HIC15_log",
   data = madymo_nhtsa_df_full
@@ -1099,18 +1105,24 @@ model_eval_full <- model_eval_fun(
 
 model_eval_extreme_adjusted <- model_eval_fun(
   formula = "HIPR ~ HIC15_log",
-  data = madymo_nhtsa_df
+  data = madymo_nhtsa_df_listwise
+)
+
+model_eval_extreme_adjusted2 <- model_eval_fun(
+  formula = "HIPR ~ HIC15_log + BMI",
+  data = madymo_nhtsa_df_listwise
 )
 
 # compare model_eval_fun results
 comp <- c(
-  "model_eval_full",
+  "model_eval_extreme_adjusted2",
   "model_eval_extreme_adjusted")
 
 compare_df_fun(comp)
 ```
 
-```{r examine missingness, eval=FALSE}
+
+```{r examine missingness, eval=FALSE, include=FALSE}
 # examine missingness
 missing_values <- madymo_nhtsa_df %>%
   summarise_all(~ sum(is.na(.))) %>%
@@ -1246,7 +1258,7 @@ summary(missing_model)
 # no significance in this model, suggesting missing at random
 ```
 
-```{r define kept columns}
+```{r define kept columns, include=FALSE}
 columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "DV_MPH", "DVEST_MPH", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "TIME_cat", "VEHTYPE", "HIC15", "HIC15_log")
 
 # select only relevant columns
@@ -1255,43 +1267,18 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
     all_of(columns_final))
 ```
 
-```{r DV_MPH split categories}
-# create BMI_low, DV_MPH_low, DV_MPH_cat_5, and DV_MPH_cat_10 variables in madymo_nhtsa_df
-bmi_cutoff <- 30 # could be 32, better sens and spec, but fewer for splitting by DV_MPH in higher levels
 
-madymo_nhtsa_df <- madymo_nhtsa_df %>%
-  mutate(
-    BMI_low = as.factor(ifelse(BMI < bmi_cutoff, 1, 0)),
-    DV_MPH_low = as.factor(ifelse(DV_MPH < 20, 1, 0)),
-    DV_MPH_cat_3 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 20), include.lowest = TRUE))),
-    DV_MPH_cat_5 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 12), include.lowest = TRUE))),
-    DV_MPH_cat_10 = as.factor(as.numeric(cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 6), include.lowest = TRUE)))
-  )
+### Remove all participants with any missing values in relevant variables
 
 
-
-
-
-
-# FIND SPLIT POINTS BASED ON TOTAL NUMBER OF CASES BY DV_MPH into 3 categories
-
-
-
-
-
-
-# visualize DV_MPH levels
-# ggplot(madymo_nhtsa_df, aes(x = DV_MPH)) +
-#   geom_histogram(binwidth = 2) +
-#   labs(title = "Histogram of Delta V", x = "Delta V (mph)", y = "Count") +
-#   theme_minimal()
-
-```
-
-```{r remove missing values listwise}
+```{r remove missing values listwise, echo=FALSE}
 # remove all individuals who have any missing variables
+print(paste("Number of rows before removing missing values: ", nrow(madymo_nhtsa_df)))
 madymo_nhtsa_df_listwise <- madymo_nhtsa_df %>%
   filter(complete.cases(.))
+
+# print number of rows after removing missing values
+print(paste("Number of rows after removing missing values: ", nrow(madymo_nhtsa_df_listwise)))
 
 # check missingness
 missing_values <- madymo_nhtsa_df_listwise %>%
@@ -1299,7 +1286,10 @@ missing_values <- madymo_nhtsa_df_listwise %>%
   gather(variable, missing) %>%
   filter(missing > 0) %>%
   arrange(desc(missing))
+print("Check missing values after removing rows with missing values")
 print(missing_values)
+
+
 
 # remove unnecessary items from environment
 rm(
@@ -1307,17 +1297,27 @@ rm(
 )
 ```
 
-```{r occ, env, sim variable groups}
+
+### Define variable groups for logistic regression analysis
+
+
+```{r occ, env, sim variable groups, echo=FALSE}
 # define occupant variables
 occ_vars <- c("SEX_BIN", "AGE", "BMI")
+print(paste("Occupant variables: ", paste(occ_vars, collapse = ", ")))
 # define env_vars
 env_vars <- c("WEATHER", "MAKE", "MODELYR", "VEHWGT", "TIME", "VEHTYPE")
+print(paste("Environment variables: ", paste(env_vars, collapse = ", ")))
 # SIMULATION VARIABLES model
 sim_vars <- c("DV_MPH", "SEATPOS", "BELTUSE_BIN", "BAGDEPLOY_BIN")
+print(paste("Simulation variables: ", paste(sim_vars, collapse = ", ")))
 ```
 
 
-```{r listwise models removed missings, eval=FALSE}
+### Stepwise logistic regression analysis, one variable group at a time
+
+
+```{r listwise models removed missings, eval=FALSE, echo=FALSE}
 # univariate model
 univariate_model_listwise <- model_eval_fun(
   formula = "HIPR ~ HIC15_log",
@@ -1422,12 +1422,6 @@ env_vars <- env_vars[-2]
 # impossible because only 2 entries
 
 
-# compare_df_fun( <- model_eval_fun(
-#   survey_design_listwise,
-#   multivariate_model_listwise_env_sleetfog
-# )
-
-
 # multivariate_model_listwise_env_not_sleetfog <- model_eval_fun(
 #   formula = paste(
 #     "HIPR ~", 
@@ -1530,34 +1524,11 @@ summary(multivariate_model_listwise_final$model)
 
 ```
 
-```{r visualize HIC15 risk curve, eval=FALSE}
-# visualize HIC15 risk curve using multivariate_model_listwise_final$model using predicted values
-# create a new dataframe with predicted values
-predicted_df <- madymo_nhtsa_df_listwise %>%
-  mutate(
-    predicted = predict(multivariate_model_listwise_final$model, newdata = madymo_nhtsa_df_listwise, type = "response")
-  )
 
-#plot logistic regression curve
-ggplot(predicted_df, aes(x=HIC15, y=predicted)) + 
-  geom_point(alpha=.5) +
-  stat_smooth(method="glm", se=FALSE, method.args = list(family=binomial))
+### Compare logistic regression models
 
-# graph with left Y axis for HIC and the right one for injury risk, with the x axis for dV
-# Assuming a linear transformation: HIC15 = prob * 1000 (adjust based on your data)
-scaling_factor <- 60000  # Change this based on your HIC15 range
 
-ggplot(predicted_df, aes(x = DV_MPH, y = predicted)) +
-  geom_point(alpha = 0.5) +
-  stat_smooth(method = "glm", se = FALSE, method.args = list(family = binomial)) +
-  scale_y_continuous(
-    name = "Injury Risk",
-    sec.axis = sec_axis(~ . * scaling_factor, name = "HIC15")
-  ) +
-  labs(title = "HIC15 Risk Curve", x = "Delta V (mph)", y = "Injury Risk")
-```
-
-```{r compare non-imputed models, eval=FALSE}
+```{r compare non-imputed models, eval=FALSE, echo=FALSE}
 # compare model_eval_fun results
 comp <- c(
   "univariate_model_listwise",
@@ -1570,71 +1541,28 @@ models_listwise_comparison_df <- compare_df_fun(comp)
 print(models_listwise_comparison_df)
 ```
 
-```{r categories BMI and DV_MPH, eval=FALSE}
-# create dataframe for examining BMI and DV_MPH
-xtab_df <- madymo_nhtsa_df %>%
-  group_by(BMI) %>%
-  summarise(
-    count = n(),
-    HIPR_count = sum(HIPR == 1),
-    HIPR_prevalence = HIPR_count / count,
-    BMI_low = ifelse(BMI < 30, 1, 0),
-    DV_MPH_low = ifelse(DV_MPH < 20, 1, 0),
-    # cut DV_MPH into 10 mph bins starting at min_DV_MPH, ending at max_DV_MPH
-    DV_MPH_cat_3 = cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 20), include.lowest = TRUE),
-    # cut DV_MPH into 10 mph bins starting at min_DV_MPH, ending at max_DV_MPH
-    DV_MPH_cat_5 = cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 12), include.lowest = TRUE),
-    # cut DV_MPH into min_DV_MPH mph bins starting at min_DV_MPH, ending at max_DV_MPH
-    DV_MPH_cat_10 = cut(DV_MPH, breaks = seq(min_DV_MPH, max_DV_MPH, by = 6), include.lowest = TRUE)
-  ) %>%
-  arrange(desc(HIPR_prevalence))
 
-# visualize HIPR_prevalence
-ggplot(xtab_df, aes(x = DV_MPH_cat_10, y = HIPR_prevalence)) +
-  geom_bar(stat = "identity") +
-  labs(title = "HIPR Prevalence by Delta V", x = "Delta V (mph)", y = "HIPR Prevalence") +
-  theme_minimal()
+```{r visualize HIC15 risk curve, eval=FALSE, echo=FALSE}
+# visualize HIC15 risk curve using multivariate_model_listwise_final$model using predicted values
+# create a new dataframe with predicted values
+predicted_df <- madymo_nhtsa_df_listwise %>%
+  mutate(
+    predicted = predict(multivariate_model_listwise_final$model, newdata = madymo_nhtsa_df_listwise, type = "response")
+  )
 
-
-# visualize BMI levels
-ggplot(madymo_nhtsa_df, aes(x = BMI)) +
-  geom_histogram(binwidth = 1) +
-  labs(title = "Histogram of BMI", x = "BMI", y = "Count") +
-  theme_minimal()
-
-
-# cross tab for BMI (<30>) and DV_MPH (<20>) 
-xtab_df_dv_low <- xtabs(
-  ~ BMI_low + DV_MPH_low,
-  data = xtab_df
-)
-print(xtab_df_dv_low)
-
-# cross tab for BMI (<30>) and DV_MPH (3 levels) 
-xtab_df_dv_3 <- xtabs(
-  ~ BMI_low + DV_MPH_cat_3,
-  data = xtab_df
-)
-print(xtab_df_dv_3)
-
-# cross tab for BMI (<30>) and DV_MPH (5 levels) 
-xtab_df_dv_5 <- xtabs(
-  ~ BMI_low + DV_MPH_cat_5,
-  data = xtab_df
-)
-print(xtab_df_dv_5)
-
-# cross tab for BMI (<30>) and DV_MPH (10 levels) 
-xtab_df_dv_10 <- xtabs(
-  ~ BMI_low + DV_MPH_cat_10,
-  data = xtab_df
-)
-print(xtab_df_dv_10)
-
-
+# plot logistic regression curve
+ggplot(predicted_df, aes(x = HIC15, y = predicted)) + 
+  geom_point(alpha = 0.5) +
+  stat_smooth(method = "glm", se = FALSE, method.args = list(family = quasibinomial)) +
+  labs(
+    title = "Logistic Regression Curve for HIC15 Risk",
+    x = "HIC15",
+    y = "Predicted Probability of Injury"
+  ) 
 ```
 
-```{r BMI levels, eval=FALSE}
+
+```{r BMI levels, eval=FALSE, echo=FALSE}
 # stratified analysis with BMI < 29 
 bmi_fit_underweight_29 <- model_eval_fun(
   formula = paste(
@@ -1643,7 +1571,6 @@ bmi_fit_underweight_29 <- model_eval_fun(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, BMI < 29)
 )
-summary(bmi_fit_underweight_29$model)
 
 # stratified analysis with BMI >= 29
 bmi_fit_overweight_29 <- model_eval_fun(
@@ -1653,7 +1580,6 @@ bmi_fit_overweight_29 <- model_eval_fun(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, BMI >= 29)
 )
-summary(bmi_fit_overweight_29$model)
 
 
 # stratified analysis with BMI < 30 
@@ -1664,7 +1590,6 @@ bmi_fit_underweight_30 <- model_eval_fun(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, BMI < 30)
 )
-summary(bmi_fit_underweight_30$model)
 
 # stratified analysis with BMI >= 30
 bmi_fit_overweight_30 <- model_eval_fun(
@@ -1674,8 +1599,6 @@ bmi_fit_overweight_30 <- model_eval_fun(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, BMI >= 30)
 )
-summary(bmi_fit_overweight_30$model)
-
 
 # stratified analysis with BMI < 32 
 bmi_fit_underweight_32 <- model_eval_fun(
@@ -1685,7 +1608,6 @@ bmi_fit_underweight_32 <- model_eval_fun(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, BMI < 32)
 )
-summary(bmi_fit_underweight_32$model)
 
 # stratified analysis with BMI >= 32 
 bmi_fit_overweight_32 <- model_eval_fun(
@@ -1695,7 +1617,6 @@ bmi_fit_overweight_32 <- model_eval_fun(
       c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
   data = subset(madymo_nhtsa_df_listwise, BMI >= 32)
 )
-summary(bmi_fit_overweight_32$model)
 
 
 comp_bmi <- c(
@@ -1707,271 +1628,15 @@ comp_bmi <- c(
   "bmi_fit_overweight_32")
 
 bmi_comparison_df <- compare_df_fun(comp_bmi)
+print("Comparison of BMI cutoff points")
 print(bmi_comparison_df)
 
 ```
 
-```{r delta V levels, eval=FALSE}
-# visualize cases per DVEST_MPH
-ggplot(madymo_nhtsa_df, aes(x = DV_MPH)) +
-  geom_histogram(binwidth = 2) +
-  labs(title = "Histogram of Delta V", x = "Delta V (mph)", y = "Count") +
-  theme_minimal()
 
+```{r AUC grid functions (fig 2), include=FALSE}
+roc_grid_prep_fun <- function(models_obj, col_num = 3) {
 
-# stratified analysis with DV < 9 
-fit_dv_under_9 <- model_eval_fun(
-  formula = paste(
-    "HIPR ~", 
-    paste(
-      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
-  data = subset(madymo_nhtsa_df_listwise, DV_MPH < 12)
-)
-summary(fit_dv_under_9$model)
-
-# stratified analysis with DV >= 9
-fit_dv_over_9 <- model_eval_fun(
-  formula = paste(
-    "HIPR ~", 
-    paste(
-      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
-  data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 9)
-)
-summary(fit_dv_over_9$model)
-
-
-# stratified analysis with DV < 9 
-fit_dv_9_to_14 <- model_eval_fun(
-  formula = paste(
-    "HIPR ~", 
-    paste(
-      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
-  data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 9 & DV_MPH < 14)
-)
-summary(fit_dv_9_to_14$model)
-
-# stratified analysis with DV >= 9
-fit_dv_over_9 <- model_eval_fun(
-  formula = paste(
-    "HIPR ~", 
-    paste(
-      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
-  data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 9)
-)
-summary(fit_dv_over_9$model)
-
-
-# stratified analysis with DV < 15 
-fit_dv_under_15 <- model_eval_fun(
-  formula = paste(
-    "HIPR ~", 
-    paste(
-      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
-  data = subset(madymo_nhtsa_df_listwise, DV_MPH < 15)
-)
-summary(fit_dv_under_15$model)
-
-# stratified analysis with DV >= 15
-fit_dv_over_15 <- model_eval_fun(
-  formula = paste(
-    "HIPR ~", 
-    paste(
-      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
-  data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 15)
-)
-summary(fit_dv_over_15$model)
-
-
-# stratified analysis with DV < 30 
-fit_dv_under_30 <- model_eval_fun(
-  formula = paste(
-    "HIPR ~", 
-    paste(
-      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
-  data = subset(madymo_nhtsa_df_listwise, DV_MPH < 30)
-)
-summary(fit_dv_under_30$model)
-
-# stratified analysis with DV >= 30
-fit_dv_over_30 <- model_eval_fun(
-  formula = paste(
-    "HIPR ~", 
-    paste(
-      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5)], sim_vars[c(-4, -2, -3)]), collapse = " + ")),
-  data = subset(madymo_nhtsa_df_listwise, DV_MPH >= 30)
-)
-summary(fit_dv_over_30$model)
-
-
-
-
-
-
-comp_bmi <- c(
-  "bmi_fit_underweight_29",
-  "bmi_fit_overweight_29",
-  "bmi_fit_dv_under_30",
-  "bmi_fit_dv_over_30",
-  "bmi_fit_underweight_32",
-  "bmi_fit_overweight_32")
-
-bmi_comparison_df <- compare_df_fun(comp_bmi)
-print(bmi_comparison_df)
-
-```
-
-```{r delta V xtiles, eval=FALSE}
-# create xtiles, quartiles, and quintiles for DV_MPH, even spread across all individuals
-madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
-  mutate(
-    DVEST_MPH_tertile = ntile(DVEST_MPH, 3),
-    DVEST_MPH_quartile = ntile(DVEST_MPH, 4),
-    DVEST_MPH_quintile = ntile(DVEST_MPH, 5),
-    BMI_tertile = ntile(BMI, 3)
-  )
-
-# check xtiles
-xtab_df_dv_tertile <- xtabs(
-  ~  BMI_low + DVEST_MPH_tertile,
-  data = madymo_nhtsa_df_listwise
-)
-print(xtab_df_dv_tertile)
-
-xtab_df_dv_quartile <- xtabs(
-  ~ BMI_low + DVEST_MPH_quartile,
-  data = madymo_nhtsa_df_listwise
-)
-print(xtab_df_dv_quartile)
-
-xtab_df_dv_quintile <- xtabs(
-  ~ BMI_low + DVEST_MPH_quintile,
-  data = madymo_nhtsa_df_listwise
-)
-print(xtab_df_dv_quintile)
-
-# list minima and maxima of each DVEST tertile
-DVEST_tertile_min_max <- madymo_nhtsa_df_listwise %>%
-  group_by(DVEST_MPH_tertile) %>%
-  summarise(
-    min = min(DVEST_MPH),
-    max = max(DVEST_MPH)
-  )
-print(DVEST_tertile_min_max)
-
-# list minima and maxima of each BMI tertile
-BMI_tertile_min_max <- madymo_nhtsa_df_listwise %>%
-  group_by(BMI_tertile) %>%
-  summarise(
-    min = round(min(BMI)),
-    max = round(max(BMI))
-  )
-print(BMI_tertile_min_max)
-
-quartile_min_max <- madymo_nhtsa_df_listwise %>%
-  group_by(DVEST_MPH_quartile) %>%
-  summarise(
-    min = min(DVEST_MPH),
-    max = max(DVEST_MPH)
-  )
-print(quartile_min_max)
-
-quintile_min_max <- madymo_nhtsa_df_listwise %>%
-  group_by(DVEST_MPH_quintile) %>%
-  summarise(
-    min = min(DVEST_MPH),
-    max = max(DVEST_MPH)
-  )
-print(quintile_min_max)
-```
-
-```{r delta V xtiles by cases}
-# make xtiles of DV_MPH for only those with HIPR == 1
-madymo_nhtsa_df_listwise_hipr <- madymo_nhtsa_df_listwise %>%
-  filter(HIPR == 1) %>%
-  mutate(
-    DVEST_MPH_tertile_case = ntile(DVEST_MPH, 3),
-    DVEST_MPH_quartile_case = ntile(DVEST_MPH, 4),
-    DVEST_MPH_quintile_case = ntile(DVEST_MPH, 5)
-  )
-
-
-# list minima and maxima of each tertile
-tertile_min_max_case <- madymo_nhtsa_df_listwise_hipr %>%
-  group_by(DVEST_MPH_tertile_case) %>%
-  summarise(
-    min = min(DVEST_MPH),
-    max = max(DVEST_MPH)
-  )
-
-tertile_case_mins <- tertile_min_max_case %>% pull(2)
-
-# add tertile_min_max_case to madymo_nhtsa_df_listwise
-madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
-  mutate(
-    DVEST_MPH_tertile_case = as.factor(case_when(
-      DVEST_MPH < tertile_case_mins[2] ~ 1,
-      DVEST_MPH >= tertile_case_mins[2] & DVEST_MPH < tertile_case_mins[3] ~ 2,
-      DVEST_MPH > tertile_case_mins[3] ~ 3
-    )
-    )
-  )
-
-
-# list minima and maxima of each quartile
-quartile_min_max_case <- madymo_nhtsa_df_listwise_hipr %>%
-  group_by(DVEST_MPH_quartile_case) %>%
-  summarise(
-    min = min(DVEST_MPH),
-    max = max(DVEST_MPH)
-  )
-
-quartile_case_mins <- quartile_min_max_case %>% pull(2)
-
-# add quartile_min_max_case to madymo_nhtsa_df_listwise
-madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
-  mutate(
-    DVEST_MPH_quartile_case = as.factor(case_when(
-      DVEST_MPH < quartile_case_mins[2] ~ 1,
-      DVEST_MPH >= quartile_case_mins[2] & DVEST_MPH < quartile_case_mins[3] ~ 2,
-      DVEST_MPH >= quartile_case_mins[3] & DVEST_MPH < quartile_case_mins[4] ~ 3,
-      DVEST_MPH >= quartile_case_mins[4] ~ 4
-    )
-  )
-  )
-
-# check quartiles
-xtab_df_dv_quartile_case <- xtabs(
-  ~  BMI_low + DVEST_MPH_quartile_case,
-  data = madymo_nhtsa_df_listwise_hipr
-)
-
-# list minima and maxima of each quartile
-quintile_min_max_case <- madymo_nhtsa_df_listwise_hipr %>%
-  group_by(DVEST_MPH_quintile_case) %>%
-  summarise(
-    min = min(DVEST_MPH),
-    max = max(DVEST_MPH)
-  )
-
-quintile_case_mins <- quintile_min_max_case %>% pull(2)
-
-# add quintile_min_max_case to madymo_nhtsa_df_listwise
-madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
-  mutate(
-    DVEST_MPH_quintile_case = as.factor(case_when(
-      DVEST_MPH < quintile_case_mins[2] ~ 1,
-      DVEST_MPH >= quintile_case_mins[2] & DVEST_MPH < quintile_case_mins[3] ~ 2,
-      DVEST_MPH >= quintile_case_mins[3] & DVEST_MPH < quintile_case_mins[4] ~ 3,
-      DVEST_MPH >= quintile_case_mins[4] & DVEST_MPH < quintile_case_mins[5] ~ 4,
-      DVEST_MPH >= quintile_case_mins[5] ~ 5
-    )
-  )
-  )
-```
-
-```{r AUC grid function (fig 2)}
-roc_grid_fun <- function(models_obj, col_num = 3) {
-  
   model_names <- names(models_obj)
   
   # Extract data from each model object
@@ -1988,8 +1653,7 @@ roc_grid_fun <- function(models_obj, col_num = 3) {
     cases <- model$metrics$Cases
     Controls <- model$metrics$Controls
     
-    # browser()
-    
+
     tibble(
       FPR = 1 - wroc_data$Spw.values,  # 1 - Specificity
       TPR = wroc_data$Sew.values,      # Sensitivity
@@ -2009,8 +1673,17 @@ roc_grid_fun <- function(models_obj, col_num = 3) {
   # preserve order of models (don't get alphabetized by summarise
   roc_df <- roc_df %>%
     mutate(Model = factor(Model, levels = model_names))
+}
+
+
+roc_compare_grid_fun <- function(models_obj, col_num = 3) {
+  # Generate ROC grid with adjusted columns
   
+  # browser()
   
+  roc_df <- roc_grid_prep_fun(models_obj, col_num = col_num)
+  
+
   # Get unique correlation per model for annotation, next line p-value
   label_df <- roc_df %>%
     group_by(Model) %>%
@@ -2052,266 +1725,48 @@ roc_grid_fun <- function(models_obj, col_num = 3) {
     theme_minimal() +
     labs(
       title = "ROC Curves by Model",
-      x = paste0("TEST", "\n1 - Specificity (False Positive Rate)"),
-      y = "Sensitivity (True Positive Rate)"
+      x = paste0("1 - Specificity (False Positive Rate)"),
+      y = paste0("Sensitivity (True Positive Rate)")
     )
 }
 ```
 
-```{r AUC grid example, eval=FALSE}
+```{r AUC grid example, eval=FALSE, echo=FALSE}
 # Step 1: Named list of main model objects
-model_objs_listwise_stepwise <- list(
-  "Univariate" = univariate_model_listwise,
-  "Occupant Variables" = multivariate_model_listwise_occ,
-  "Environment Variables" = multivariate_model_listwise_env,
-  "Simulation Variables" = multivariate_model_listwise_sim,
-  "Final Model" = multivariate_model_listwise_final
+# model_objs_listwise_stepwise <- list(
+#   "Univariate" = univariate_model_listwise,
+#   "Occupant Variables" = multivariate_model_listwise_occ,
+#   "Environment Variables" = multivariate_model_listwise_env,
+#   "Simulation Variables" = multivariate_model_listwise_sim,
+#   "Final Model" = multivariate_model_listwise_final
+# )
+# 
+# roc_compare_grid_fun(model_objs_listwise_stepwise, col_num = 5)
+# 
+
+univariate_model_listwise <- model_eval_fun(
+  formula = paste("HIPR ~ HIC15_log"),
+  data = madymo_nhtsa_df_listwise
 )
 
-roc_grid_fun(model_objs_listwise_stepwise, col_num = 2)
+final_model_listwise <- model_eval_fun(
+  formula = paste(
+    "HIPR ~", 
+    paste(
+      c("HIC15_log", occ_vars[c(-1, -2)], env_vars[c(-1, -2, -3, -4, -5, -6)], sim_vars[c(-4, -3, -2)]), collapse = " + ")),
+  data = madymo_nhtsa_df_listwise
+)
+
+models <- list(
+ "Univariate" = univariate_model_listwise,
+ "Final" = final_model_listwise
+)
+
+roc_compare_grid_fun(models, col_num = 2)
 ```
 
-```{r AUC grid model build, eval=FALSE}
-# NOW DEFUNCT - FOLLOWING BLOCK HAS SCALABLE FORMULA VERSION OF THIS CODE
-
-# AUC_grid_subset_rules_DV_tertile <- list(
-#   AUC_grid_DV31_BMIlow = "DV_MPH_tertile == 1 & BMI_low == 1",
-#   AUC_grid_DV32_BMIlow = "DV_MPH_tertile == 2 & BMI_low == 1",
-#   AUC_grid_DV33_BMIlow = "DV_MPH_tertile == 3 & BMI_low == 1",
-#   AUC_grid_DV31_BMIhigh = "DVEST_MPH_tertile == 1 & BMI_low == 0",
-#   AUC_grid_DV32_BMIhigh = "DVEST_MPH_tertile == 2 & BMI_low == 0",
-#   AUC_grid_DV33_BMIhigh = "DVEST_MPH_tertile == 3 & BMI_low == 0"
-# )
-
-roc_grid_given_xtile_fun <- function(
-    df = madymo_nhtsa_df_listwise, 
-    vars = c(DVEST_MPH, BMI), 
-    num_levels = c(3, 3)) {
-temp_df <- df %>%
-  mutate(
-    DVEST_MPH_xtile = as.factor(ntile(DVEST_MPH, 3)),
-    BMI_xtile = as.factor(ntile(BMI, 3))
-  )
-
-# list minima and maxima of each DV xtile
-DVEST_MPH_xtile_min_max <- madymo_nhtsa_df_listwise %>%
-  group_by(DVEST_MPH_tertile) %>%
-  summarise(
-    min = min(DVEST_MPH),
-    max = max(DVEST_MPH)
-  )
-# list minima and maxima of each BMI xtile
-BMI_xtile_min_max <- madymo_nhtsa_df_listwise %>%
-  group_by(BMI_tertile) %>%
-  summarise(
-    min = min(BMI),
-    max = max(BMI)
-  )
-}
-
-
-
-# verbose but effectively flexible build of tertile model - will adjust titles of each graph based on ranges determined in tertiling process
-AUC_grid_subset_rules_DV_and_BMI_tertile <- list()
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[1], "-", DV_tertile_min_max$max[1], 
-  ", BMI ", BMI_tertile_min_max$min[1], "-", BMI_tertile_min_max$max[1])]] <-
-  "DVEST_MPH_tertile == 1 & BMI_tertile == 1"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[2], "-", DV_tertile_min_max$max[2], 
-  ", BMI ", BMI_tertile_min_max$min[1], "-", BMI_tertile_min_max$max[1])]] <-
-  "DVEST_MPH_tertile == 2 & BMI_tertile == 1"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[3], "-", DV_tertile_min_max$max[3], 
-  ", BMI ", BMI_tertile_min_max$min[1], "-", BMI_tertile_min_max$max[1])]] <-
-  "DVEST_MPH_tertile == 3 & BMI_tertile == 1"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "All DV",
-  ", BMI ", BMI_tertile_min_max$min[1], "-", BMI_tertile_min_max$max[1])]] <-
-  "BMI_tertile == 1"
-
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[1], "-", DV_tertile_min_max$max[1], 
-  ", BMI ", BMI_tertile_min_max$min[2], "-", BMI_tertile_min_max$max[2])]] <-
-  "DVEST_MPH_tertile == 1 & BMI_tertile == 2"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[2], "-", DV_tertile_min_max$max[2], 
-  ", BMI ", BMI_tertile_min_max$min[2], "-", BMI_tertile_min_max$max[2])]] <-
-  "DVEST_MPH_tertile == 2 & BMI_tertile == 2"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[3], "-", DV_tertile_min_max$max[3], 
-  ", BMI ", BMI_tertile_min_max$min[2], "-", BMI_tertile_min_max$max[2])]] <-
-  "DVEST_MPH_tertile == 3 & BMI_tertile == 2"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "All DV",
-  ", BMI ", BMI_tertile_min_max$min[2], "-", BMI_tertile_min_max$max[2])]] <-
-  "BMI_tertile == 2"
-
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[1], "-", DV_tertile_min_max$max[1], 
-  ", BMI ", BMI_tertile_min_max$min[3], "-", BMI_tertile_min_max$max[3])]] <-
-  "DVEST_MPH_tertile == 1 & BMI_tertile == 3"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[2], "-", DV_tertile_min_max$max[2], 
-  ", BMI ", BMI_tertile_min_max$min[3], "-", BMI_tertile_min_max$max[3])]] <-
-  "DVEST_MPH_tertile == 2 & BMI_tertile == 3"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[3], "-", DV_tertile_min_max$max[3], 
-  ", BMI ", BMI_tertile_min_max$min[3], "-", BMI_tertile_min_max$max[3])]] <-
-  "DVEST_MPH_tertile == 3 & BMI_tertile == 3"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "All DV",
-  ", BMI ", BMI_tertile_min_max$min[3], "-", BMI_tertile_min_max$max[3])]] <-
-  "BMI_tertile == 3"
-
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[1], "-", DV_tertile_min_max$max[1],
-  ", All BMI")]] <- 
-  "DVEST_MPH_tertile == 1"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[2], "-", DV_tertile_min_max$max[2],
-  ", All BMI")]] <- 
-  "DVEST_MPH_tertile == 2"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "DV ", DV_tertile_min_max$min[3], "-", DV_tertile_min_max$max[3],
-  ", All BMI")]] <- 
-  "DVEST_MPH_tertile == 3"
-
-AUC_grid_subset_rules_DV_and_BMI_tertile[[paste0(
-  "All DV",
-  ", All BMI")]] <- 
-  # need something here to satisfy logical argument requirement of function
-  paste0("DVEST_MPH_tertile %in% c(", 
-         madymo_nhtsa_df_listwise$DVEST_MPH_tertile[1],
-         ":", madymo_nhtsa_df_listwise$DVEST_MPH_tertile[
-           length(madymo_nhtsa_df_listwise$DVEST_MPH_tertile)], ")")
-
-
-  # "All DV, BMI 1" = "BMI_tertile == 1",
-  # "DV 1, BMI 2" = "DVEST_MPH_tertile == 1 & BMI_tertile == 2",
-  # "DV 2, BMI 2" = "DVEST_MPH_tertile == 2 & BMI_tertile == 2",
-  # "DV 3, BMI 2" = "DVEST_MPH_tertile == 3 & BMI_tertile == 2",
-  # "All DV, BMI 2" = "BMI_tertile == 2",
-  # "DV 1, BMI 3" = "DVEST_MPH_tertile == 1 & BMI_tertile == 3",
-  # "DV 2, BMI 3" = "DVEST_MPH_tertile == 2 & BMI_tertile == 3",
-  # "DV 3, BMI 3" = "DVEST_MPH_tertile == 3 & BMI_tertile == 3",
-  # "All DV, BMI 3" = "BMI_tertile == 3"
-
-
-# AUC_grid_subset_rules_quartile <- list(
-#   AUC_grid_DV41_BMIlow = "DVEST_MPH_quartile == 1 & BMI_low == 1",
-#   AUC_grid_DV42_BMIlow = "DVEST_MPH_quartile == 2 & BMI_low == 1",
-#   AUC_grid_DV43_BMIlow = "DVEST_MPH_quartile == 3 & BMI_low == 1",
-#   AUC_grid_DV44_BMIlow = "DVEST_MPH_quartile == 4 & BMI_low == 1",
-#   AUC_grid_DV41_BMIhigh = "DVEST_MPH_quartile == 1 & BMI_low == 0",
-#   AUC_grid_DV42_BMIhigh = "DVEST_MPH_quartile == 2 & BMI_low == 0",
-#   AUC_grid_DV43_BMIhigh = "DVEST_MPH_quartile == 3 & BMI_low == 0",
-#   AUC_grid_DV44_BMIhigh = "DVEST_MPH_quartile == 4 & BMI_low == 0"
-# )
-# 
-# AUC_grid_subset_rules_quintile <- list(
-#   AUC_grid_DV51_BMIlow = "DVEST_MPH_quintile == 1 & BMI_low == 1",
-#   AUC_grid_DV52_BMIlow = "DVEST_MPH_quintile == 2 & BMI_low == 1",
-#   AUC_grid_DV53_BMIlow = "DVEST_MPH_quintile == 3 & BMI_low == 1",
-#   AUC_grid_DV54_BMIlow = "DVEST_MPH_quintile == 4 & BMI_low == 1",
-#   AUC_grid_DV55_BMIlow = "DVEST_MPH_quintile == 5 & BMI_low == 1",
-#   AUC_grid_DV51_BMIhigh = "DVEST_MPH_quintile == 1 & BMI_low == 0",
-#   AUC_grid_DV52_BMIhigh = "DVEST_MPH_quintile == 2 & BMI_low == 0",
-#   AUC_grid_DV53_BMIhigh = "DVEST_MPH_quintile == 3 & BMI_low == 0",
-#   AUC_grid_DV54_BMIhigh = "DVEST_MPH_quintile == 4 & BMI_low == 0",
-#   AUC_grid_DV55_BMIhigh = "DVEST_MPH_quintile == 5 & BMI_low == 0"
-# )
-
-# # with DV tertiles
-# AUC_grid_models_tertile <- lapply(names(AUC_grid_subset_rules_DV_tertile), function(name) {
-#   print(AUC_grid_subset_rules_DV_tertile[[name]])
-#   rule <- AUC_grid_subset_rules_DV_tertile[[name]]
-#   model_eval_fun(
-#     formula = "HIPR ~ HIC15_log",
-#     data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
-#   )
-# })
-# names(AUC_grid_models_tertile) <- names(AUC_grid_subset_rules_DV_tertile)
-# 
-# print(xtab_df_dv_tertile)
-
-# with BMI and DV tertiles
-AUC_grid_models_DV_and_BMI_tertile <- lapply(names(AUC_grid_subset_rules_DV_and_BMI_tertile), function(name) {
-  print(AUC_grid_subset_rules_DV_and_BMI_tertile[[name]])
-  rule <- AUC_grid_subset_rules_DV_and_BMI_tertile[[name]]
-  model_eval_fun(
-    formula = "HIPR ~ HIC15_log",
-    data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
-  )
-})
-names(AUC_grid_models_DV_and_BMI_tertile) <- names(AUC_grid_subset_rules_DV_and_BMI_tertile)
-
-
-# AUC_grid_models_quartile <- lapply(names(AUC_grid_subset_rules_quartile), function(name) {
-#   print(AUC_grid_subset_rules_quartile[[name]])
-#   rule <- AUC_grid_subset_rules_quartile[[name]]
-#   model_eval_fun(
-#     formula = "HIPR ~ HIC15_log",
-#     data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
-#   )
-# })
-# names(AUC_grid_models_quartile) <- names(AUC_grid_subset_rules_quartile)
-# 
-# print(xtab_df_dv_quartile)
-# 
-# 
-# AUC_grid_models_quintile <- lapply(names(AUC_grid_subset_rules_quintile), function(name) {
-#   print(AUC_grid_subset_rules_quintile[[name]])
-#   rule <- AUC_grid_subset_rules_quintile[[name]]
-#   model_eval_fun(
-#     formula = "HIPR ~ HIC15_log",
-#     data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
-#   )
-# })
-# names(AUC_grid_models_quintile) <- names(AUC_grid_subset_rules_quintile)
-# 
-# print(xtab_df_dv_quintile)
-
-
-
-# compare models in AUC_grid_models_tertile with roc_grid_fun
-AUC_grid_comparison_df_tertile <- roc_grid_fun(AUC_grid_models_tertile, col_num = 3)
-print(AUC_grid_comparison_df_tertile)
-
-# compare models in AUC_grid_models_tertile with roc_grid_fun
-AUC_grid_comparison_df_DV_and_BMI_tertile <- roc_grid_fun(AUC_grid_models_DV_and_BMI_tertile, col_num = 4)
-print(AUC_grid_comparison_df_DV_and_BMI_tertile)
-
-# # compare models in AUC_grid_models_tertile with roc_grid_fun
-# AUC_grid_comparison_df_quartile <- roc_grid_fun(AUC_grid_models_quartile, col_num = 4)
-# AUC_grid_comparison_df_quartile
-# 
-# # compare models in AUC_grid_models_tertile with roc_grid_fun
-# AUC_grid_comparison_df_quintile <- roc_grid_fun(AUC_grid_models_quintile, col_num = 5)
-# AUC_grid_comparison_df_quintile
-
-
-```
-
-
-
-
-```{r ROC grid given vars function}
-# creates grid of ROC curves that are split by xtiles (defined in argument) for 2 continuous variables to compare.
+```{r ROC grid interaction function, include=FALSE}
+# creates grid of ROC curves that are split by quantiles (defined in argument) for 2 continuous variables to compare.
 # var_x is variable that appears on x-axis, var y is variable on y-axis
 roc_grid_interaction_fun <- function(
     df = madymo_nhtsa_df_listwise, 
@@ -2319,83 +1774,83 @@ roc_grid_interaction_fun <- function(
     var_y = BMI, 
     var_x_lab = "Delta V (MPH)",
     var_y_lab = "BMI (kg/m^2)",
-    num_levels1 = 3, 
-    num_levels2 = 3, 
+    num_levelsx = 3, 
+    num_levelsy = 3, 
     outcome_var = "HIPR", 
     predictor = "HIC15_log",
-    split_x_by_xtile = TRUE,
+    split_x_by_quantile = TRUE,
     split_x_breaks = NULL,
-    split_y_by_xtile = TRUE,
+    split_y_by_quantile = TRUE,
     split_y_breaks = NULL) {
   
   # Capture variable names
   var_x_name <- deparse(substitute(var_x))
   var_y_name <- deparse(substitute(var_y))
   
-  var_x_xtile_name <- paste0(var_x_name, "_xtile")
-  var_y_xtile_name <- paste0(var_y_name, "_xtile")
+  var_x_quantile_name <- paste0(var_x_name, "_quantile")
+  var_y_quantile_name <- paste0(var_y_name, "_quantile")
   
   # Validate custom breaks if required
-  if (!split_x_by_xtile) {
+  if (!split_x_by_quantile) {
     if (is.null(split_x_breaks)) {
-      stop("split_x_breaks must be provided when split_x_by_xtile is FALSE")
+      stop("split_x_breaks must be provided when split_x_by_quantile is FALSE")
     }
     if (!is.numeric(split_x_breaks) || length(split_x_breaks) < 2) {
       stop("split_x_breaks must be a numeric vector of length >= 2")
     }
   }
   
-  if (!split_y_by_xtile) {
+  if (!split_y_by_quantile) {
     if (is.null(split_y_breaks)) {
-      stop("split_y_breaks must be provided when split_y_by_xtile is FALSE")
+      stop("split_y_breaks must be provided when split_y_by_quantile is FALSE")
     }
     if (!is.numeric(split_y_breaks) || length(split_y_breaks) < 2) {
       stop("split_y_breaks must be a numeric vector of length >= 2")
     }
   }
   
-  # Create temporary df with xtiles or custom splits
+  # Create temporary df with quantiles or custom splits
   temp_df <- df
   
   # Handle var_x splitting
-  if (split_x_by_xtile) {
+  if (split_x_by_quantile) {
     temp_df <- temp_df %>%
-      mutate(!!var_x_xtile_name := as.factor(ntile({{var_x}}, num_levels1)))
+      mutate(!!var_x_quantile_name := as.factor(ntile({{var_x}}, num_levelsx)))
   } else {
     temp_df <- temp_df %>%
       mutate(
-        !!var_x_xtile_name := as.numeric(cut({{var_x}}, 
+        !!var_x_quantile_name := as.numeric(cut({{var_x}}, 
                                           breaks = split_x_breaks, 
                                           include.lowest = TRUE, 
                                           right = TRUE))
       ) %>%
-      mutate(!!var_x_xtile_name := as.factor(!!sym(var_x_xtile_name)))
+      mutate(!!var_x_quantile_name := as.factor(!!sym(var_x_quantile_name)))
   }
   
   # Handle var_y splitting
-  if (split_y_by_xtile) {
+  if (split_y_by_quantile) {
     temp_df <- temp_df %>%
-      mutate(!!var_y_xtile_name := as.factor(ntile({{var_y}}, num_levels2)))
+      mutate(!!var_y_quantile_name := as.factor(ntile({{var_y}}, num_levelsy)))
   } else {
     temp_df <- temp_df %>%
       mutate(
-        !!var_y_xtile_name := as.numeric(cut({{var_y}}, 
+        !!var_y_quantile_name := as.numeric(cut({{var_y}}, 
                                            breaks = split_y_breaks, 
                                            include.lowest = TRUE, 
                                            right = TRUE))
       ) %>%
-      mutate(!!var_y_xtile_name := as.factor(!!sym(var_y_xtile_name)))
+      mutate(!!var_y_quantile_name := as.factor(!!sym(var_y_quantile_name)))
   }
   
   # Determine number of levels for each variable
-  n_level_x <- if (split_x_by_xtile) num_levels1 else (length(split_x_breaks) - 1)
-  n_level_y <- if (split_y_by_xtile) num_levels2 else (length(split_y_breaks) - 1)
+  n_level_x <- if (split_x_by_quantile) num_levelsx else (length(split_x_breaks) - 1)
+  n_level_y <- if (split_y_by_quantile) num_levelsy else (length(split_y_breaks) - 1)
   
-  # Get min/max for each xtile or split
+  # Get min/max for each quantile or split
   # For var_x
-  if (split_x_by_xtile) {
+  if (split_x_by_quantile) {
     var_x_min_max <- temp_df %>%
-      group_by(!!sym(var_x_xtile_name)) %>%
+      group_by(!!sym(var_x_quantile_name)) %>%
       summarise(
         min = min(round({{var_x}}), na.rm = TRUE),
         max = max(round({{var_x}}), na.rm = TRUE)
@@ -2404,16 +1859,16 @@ roc_grid_interaction_fun <- function(
     n_x <- length(split_x_breaks) - 1
     var_x_min_max <- data.frame(
       level = 1:n_x,
-      min = split_x_breaks[1:n_x],
-      max = split_x_breaks[2:(n_x + 1)]
+      min = round(split_x_breaks[1:n_x]),
+      max = round(split_x_breaks[2:(n_x + 1)])
     )
-    colnames(var_x_min_max)[1] <- var_x_xtile_name
+    colnames(var_x_min_max)[1] <- var_x_quantile_name
   }
   
   # For var_y
-  if (split_y_by_xtile) {
+  if (split_y_by_quantile) {
     var_y_min_max <- temp_df %>%
-      group_by(!!sym(var_y_xtile_name)) %>%
+      group_by(!!sym(var_y_quantile_name)) %>%
       summarise(
         min = min(round({{var_y}}), na.rm = TRUE),
         max = max(round({{var_y}}), na.rm = TRUE)
@@ -2422,10 +1877,10 @@ roc_grid_interaction_fun <- function(
     n_y <- length(split_y_breaks) - 1
     var_y_min_max <- data.frame(
       level = 1:n_y,
-      min = split_y_breaks[1:n_y],
-      max = split_y_breaks[2:(n_y + 1)]
+      min = round(split_y_breaks[1:n_y]),
+      max = round(split_y_breaks[2:(n_y + 1)])
     )
-    colnames(var_y_min_max)[1] <- var_y_xtile_name
+    colnames(var_y_min_max)[1] <- var_y_quantile_name
   }
   
   # Create all combinations of subset rules
@@ -2438,7 +1893,7 @@ roc_grid_interaction_fun <- function(
         var_x_lab, " ", var_x_min_max$min[i], "-", var_x_min_max$max[i], 
         ", ", var_y_lab, " ", var_y_min_max$min[j], "-", var_y_min_max$max[j]
       )
-      rule <- paste0(var_x_xtile_name, " == ", i, " & ", var_y_xtile_name, " == ", j)
+      rule <- paste0(var_x_quantile_name, " == ", i, " & ", var_y_quantile_name, " == ", j)
       subset_rules[[name]] <- rule
     }
     
@@ -2447,7 +1902,7 @@ roc_grid_interaction_fun <- function(
       "All ", var_x_lab, 
       ", ", var_y_lab, " ", var_y_min_max$min[j], "-", var_y_min_max$max[j]
     )
-    rule <- paste0(var_y_xtile_name, " == ", j)
+    rule <- paste0(var_y_quantile_name, " == ", j)
     subset_rules[[name]] <- rule
   }
   
@@ -2457,14 +1912,14 @@ roc_grid_interaction_fun <- function(
       var_x_lab, " ", var_x_min_max$min[i], "-", var_x_min_max$max[i],
       ", All ", var_y_lab
     )
-    rule <- paste0(var_x_xtile_name, " == ", i)
+    rule <- paste0(var_x_quantile_name, " == ", i)
     subset_rules[[name]] <- rule
   }
   
   # 4. Full model (all var_x, all var_y)
   name <- paste0("All ", var_x_lab, ", All ", var_y_lab)
-  rule <- paste0(var_x_xtile_name, " %in% 1:", n_level_x, " & ", 
-                var_y_xtile_name, " %in% 1:", n_level_y)
+  rule <- paste0(var_x_quantile_name, " %in% 1:", n_level_x, " & ", 
+                var_y_quantile_name, " %in% 1:", n_level_y)
   subset_rules[[name]] <- rule
   
   # Create models for each subset
@@ -2478,154 +1933,83 @@ roc_grid_interaction_fun <- function(
   })
   names(models) <- names(subset_rules)
   
+  # browser()
+  
   # Generate ROC grid with adjusted columns
-  roc_grid_fun(models, col_num = n_level_x + 1)
+  col_num = n_level_x + 1
+  roc_df <- roc_grid_prep_fun(models, col_num = col_num)
+  
+  # Get unique correlation per model for annotation, next line p-value
+  label_df <- roc_df %>%
+    group_by(Model) %>%
+    # summarize to get unique values for Correlation and AUC
+    summarise(
+      # Correlation = first(Correlation),
+      Cases = first(Cases),
+      Beta = first(Beta),
+      AUC = first(AUC),
+      # Optimal_Cutoff = first(Optimal_Cutoff),
+      SE = first(SE),
+      P_value = first(P_value),
+      Cases = first(Cases),
+      Controls = first(Controls)
+    ) %>%
+    mutate(label = paste0("Cases = ", Cases,
+                          "\nControls = ", Controls, 
+                          "\nAUC = ", round(AUC, 2),
+                          "\nBeta = ", round(Beta, 2),
+                          "\nSE = ", round(SE, 2), 
+                          "\nP-value = ", format_p(P_value)
+                          # "\nOptimal Cutoff = ", round(Optimal_Cutoff, 2),
+                          # "\n\nr = ", round(Correlation, 2)
+    )
+    )
+  
+  # Plot curves
+  ggplot(roc_df, aes(x = FPR, y = TPR)) +
+    geom_line(color = "blue", linewidth = 1) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey") +
+    facet_wrap(~ Model, ncol = col_num) +
+    geom_text(
+      data = label_df,
+      aes(x = 0.75, y = 0.3, label = label),  # Adjust position if needed
+      inherit.aes = FALSE,
+      size = 2.5,
+      hjust = 0
+    ) +
+    theme_minimal() +
+    labs(
+      title = "ROC Curves by Model",
+      x = paste0(var_y_lab, "\n1 - Specificity (False Positive Rate)"),
+      y = paste0(var_x_lab, "\nSensitivity (True Positive Rate)")
+    )
 }
+```
 
+```{r ROC grid interaction example, echo=FALSE, fig.width=10, fig.height=6, out.width="100%"}
 roc_grid_interaction_fun(
   df = madymo_nhtsa_df_listwise,
   var_x = DVEST_MPH,
   var_y = BMI,
   var_x_lab = "Delta V",
   var_y_lab = "BMI",
-  split_x_by_xtile = TRUE,
-  split_y_by_xtile = FALSE,
+  split_x_by_quantile = TRUE,
+  num_levelsx = 3,
+  # split_x_by_quantile = FALSE,
+  # split_x_breaks = c(0, 20, 40),  # Custom splits for var_x
+  # split_y_by_quantile = TRUE,
+  # num_levelsy = 2  
+  split_y_by_quantile = FALSE,
   split_y_breaks = c(
-    # minimum value of madymo_nhtsa_df_listwise$DVEST_MPH
-    min(madymo_nhtsa_df_listwise$DVEST_MPH),
-    30, 
-    max(madymo_nhtsa_df_listwise$DVEST_MPH)
-  ),  # Custom splits for var_y
-  num_levels2 = 2
+    min(madymo_nhtsa_df_listwise$BMI),
+    30,
+    max(madymo_nhtsa_df_listwise$BMI)
+  )
 )
 ```
 
 
-
-
-```{r AUC grid model build by cases, eval=FALSE}
-AUC_grid_subset_rules_tertile_case <- list(
-  AUC_grid_DV31_BMIlow = 
-    "DV_MPH_tertile_case == 1 & BMI_low == 1",
-  AUC_grid_DV32_BMIlow = 
-    "DV_MPH_tertile_case == 2 & BMI_low == 1",
-  AUC_grid_DV33_BMIlow = 
-    "DV_MPH_tertile_case == 3 & BMI_low == 1",
-  AUC_grid_DV31_BMIhigh = 
-    "DV_MPH_tertile_case == 1 & BMI_low == 0",
-  AUC_grid_DV32_BMIhigh = 
-    "DV_MPH_tertile_case == 2 & BMI_low == 0",
-  AUC_grid_DV33_BMIhigh = 
-    "DV_MPH_tertile_case == 3 & BMI_low == 0"
-)
-
-AUC_grid_subset_rules_quartile_case <- list(
-  AUC_grid_DV41_BMIlow = 
-    "DV_MPH_quartile_case == 1 & BMI_low == 1",
-  AUC_grid_DV42_BMIlow = 
-    "DV_MPH_quartile_case == 2 & BMI_low == 1",
-  AUC_grid_DV43_BMIlow = 
-    "DV_MPH_quartile_case == 3 & BMI_low == 1",
-  AUC_grid_DV44_BMIlow = 
-    "DV_MPH_quartile_case == 4 & BMI_low == 1",
-  AUC_grid_DV41_BMIhigh = 
-    "DV_MPH_quartile_case == 1 & BMI_low == 0",
-  AUC_grid_DV42_BMIhigh = 
-    "DV_MPH_quartile_case == 2 & BMI_low == 0",
-  AUC_grid_DV43_BMIhigh = 
-    "DV_MPH_quartile_case == 3 & BMI_low == 0",
-  AUC_grid_DV44_BMIhigh = 
-    "DV_MPH_quartile_case == 4 & BMI_low == 0"
-)
-
-AUC_grid_subset_rules_quintile_case <- list(
-  AUC_grid_DV51_BMIlow = 
-    "DV_MPH_quintile_case == 1 & BMI_low == 1",
-  AUC_grid_DV52_BMIlow = 
-    "DV_MPH_quintile_case == 2 & BMI_low == 1",
-  AUC_grid_DV53_BMIlow = 
-    "DV_MPH_quintile_case == 3 & BMI_low == 1",
-  AUC_grid_DV54_BMIlow = 
-    "DV_MPH_quintile_case == 4 & BMI_low == 1",
-  AUC_grid_DV55_BMIlow = 
-    "DV_MPH_quintile_case == 5 & BMI_low == 1",
-  AUC_grid_DV51_BMIhigh = 
-    "DV_MPH_quintile_case == 1 & BMI_low == 0",
-  AUC_grid_DV52_BMIhigh = 
-    "DV_MPH_quintile_case == 2 & BMI_low == 0",
-  AUC_grid_DV53_BMIhigh = 
-    "DV_MPH_quintile_case == 3 & BMI_low == 0",
-  AUC_grid_DV54_BMIhigh = 
-    "DV_MPH_quintile_case == 4 & BMI_low == 0",
-  AUC_grid_DV55_BMIhigh = 
-    "DV_MPH_quintile_case == 5 & BMI_low == 0"
-)
-
-
-AUC_grid_models_tertile_case <- lapply(names(AUC_grid_subset_rules_tertile_case), function(name) {
-  print(AUC_grid_subset_rules_tertile_case[[name]])
-  rule <- AUC_grid_subset_rules_tertile_case[[name]]
-  model_eval_fun(
-    formula = "HIPR ~ HIC15_log",
-    data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
-  )
-})
-names(AUC_grid_models_tertile_case) <- names(AUC_grid_subset_rules_tertile_case)
-
-print(xtab_df_dv_tertile_case)
-
-
-AUC_grid_models_quartile_case <- lapply(names(AUC_grid_subset_rules_quartile_case), function(name) {
-  print(AUC_grid_subset_rules_quartile_case[[name]])
-  rule <- AUC_grid_subset_rules_quartile_case[[name]]
-  model_eval_fun(
-    formula = "HIPR ~ HIC15_log",
-    data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
-  )
-})
-names(AUC_grid_models_quartile_case) <- names(AUC_grid_subset_rules_quartile_case)
-
-print(xtab_df_dv_quartile_case)
-
-
-AUC_grid_models_quintile_case <- lapply(names(AUC_grid_subset_rules_quintile_case), function(name) {
-  print(AUC_grid_subset_rules_quintile_case[[name]])
-  rule <- AUC_grid_subset_rules_quintile_case[[name]]
-  model_eval_fun(
-    formula = "HIPR ~ HIC15_log",
-    data = subset(madymo_nhtsa_df_listwise, eval(parse(text = rule)))
-  )
-})
-names(AUC_grid_models_quintile_case) <- names(AUC_grid_subset_rules_quintile_case)
-
-print(xtab_df_dv_quintile_case)
-
-
-
-# compare models in AUC_grid_models_tertile_case with roc_grid_fun
-AUC_grid_comparison_df_tertile_case <- roc_grid_fun(AUC_grid_models_tertile_case)
-AUC_grid_comparison_df_tertile_case
-
-# compare models in AUC_grid_models_tertile_case with roc_grid_fun
-AUC_grid_comparison_df_quartile_case <- roc_grid_fun(AUC_grid_models_quartile_case, col_num = 4)
-AUC_grid_comparison_df_quartile_case
-
-# compare models in AUC_grid_models_tertile_case with roc_grid_fun
-AUC_grid_comparison_df_quintile_case <- roc_grid_fun(AUC_grid_models_quintile_case, col_num = 5)
-AUC_grid_comparison_df_quintile_case
-
-
-```
-
-```{r AUC grid DV BMI split, eval=FALSE}
-# Step 1: Named list of main model objects
-model_objs_listwise_stepwise_bmi <- list(
-  
-)
-
-```
-
-```{r baseline descriptives function}
+```{r baseline descriptives function, include=FALSE}
 # for continuous variables, t.test
 # for categorical variables, chisq.test (if less than 5, fisher.test)
 baseline_desc_fun <- function(df) {
@@ -2762,14 +2146,14 @@ baseline_desc_fun <- function(df) {
 }
 ```
 
-```{r baseline descriptives listwise}
+```{r baseline descriptives listwise, echo=FALSE}
 baseline_desc_fun(madymo_nhtsa_df_listwise)
 # baseline_desc_fun(madymo_nhtsa_df)
 ```
 
 
 
-```{r multiple imputation, eval=FALSE}
+```{r multiple imputation process, eval=FALSE, include=FALSE}
 # multiple imputation to take care of remaining missingness
 # specify variables to not be included in imputation (1 = use in imputation)
 pred <- make.predictorMatrix(madymo_nhtsa_df)
@@ -2788,7 +2172,7 @@ saveRDS(imputed_data, file = file.path("data", "imputed_data.rds"))
 vroom::vroom_write(madymo_nhtsa_df_imp, file = file.path("data", "madymo_nhtsa_df_mice.csv"))
 ```
 
-```{r imputation objects}
+```{r functions for imputed survey logistic models, include=FALSE}
 # load imputed_data
 imputed_data <- readRDS(file = file.path("data", "imputed_data.rds"))
 
@@ -2796,9 +2180,7 @@ imputed_data <- readRDS(file = file.path("data", "imputed_data.rds"))
 madymo_nhtsa_df_imp <- complete(imputed_data, action = "long", include = TRUE)
 
 madymo_nhtsa_df_imp2 <- complete(imputed_data, "all")
-```
 
-```{r new functions for imputed multivariate survey model evaluation}
 # function to print and examine ROC curve, AUC, and other metrics
 roc_weighted_fun_multi <- function(design, model) {
   # Pool results (as before)
@@ -2916,23 +2298,8 @@ model_eval_imp <- function(model_list, imputed_designs = imputed_designs) {
   
   return(list(metrics = metrics_list))
 }
-```
-
-```{r univariate imputed logistic regression model}
-# univariate logistic regression (with multiply imputed data)
-# examine correlation between DV_MPH and HIC15
-fit_univariate_imp <- with(imputed_data, svyglm(
-  HIPR ~ HIC15_log,
-  data = madymo_nhtsa_df, 
-  family = quasibinomial,
-  design = survey_design))
-summary(pool(fit_univariate))
-```
 
 
-
-
-```{r imputed model functions}
 # maximal model to build from
 # Fit multivariate model across imputations
 imp_model_fun <- function(formula_as_text = "HIPR ~ HIC15_log") {
@@ -2972,14 +2339,16 @@ imp_model_results_fun <- function(formula_as_text = "HIPR ~ HIC15_log") {
   
   print(results_summary)
 }
+
+
 ```
 
-```{r imputed models, eval=FALSE}
-# defaults to giving univariate model, argument can be another formula for other models
-# outputs table with results
-sample_imp_fit <- imp_model_fun()
-imp_model_results_fun()
-imp_model_results_fun("HIPR ~ HIC15_log + BMI + DV_MPH")
+```{r imputed logistic models, eval=FALSE, echo=FALSE}
+# univariate model with imputed data
+uni_imp_fit <- imp_model_results_fun()
+
+# test final model from listwise stepwise deletion process
+# imp_model_results_fun("HIPR ~ HIC15_log + BMI + DV_MPH")
 
 # # model including occupant variables
 # occ_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(occ_vars, collapse = " + ")))
@@ -2991,31 +2360,31 @@ imp_model_results_fun("HIPR ~ HIC15_log + BMI + DV_MPH")
 occ_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(occ_vars[c(-1, -2)], collapse = " + ")))
 
 
-# model including environment variables
-env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars, collapse = " + ")))
-
-# omit WEATHER
-env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1)], collapse = " + ")))
-
-# omit MAKE
-env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2)], collapse = " + ")))
-
-# omit MODELYR
-env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2, -3)], collapse = " + ")))
-
-# omit VEHWGT
-env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2, -3, -4)], collapse = " + ")))
+# # model including environment variables
+# env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars, collapse = " + ")))
+# 
+# # omit WEATHER
+# env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1)], collapse = " + ")))
+# 
+# # omit MAKE
+# env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2)], collapse = " + ")))
+# 
+# # omit MODELYR
+# env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2, -3)], collapse = " + ")))
+# 
+# # omit VEHWGT
+# env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2, -3, -4)], collapse = " + ")))
 
 # omit TIME
 env_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(env_vars[c(-1, -2, -3, -4, -5)], collapse = " + ")))
 # VEHTYPE is significant at all levels
 
 
-# model including simulation variables
-sim_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(sim_vars, collapse = " + ")))
-
-# omit SEATPOS
-sim_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(sim_vars[c(-2)], collapse = " + ")))
+# # model including simulation variables
+# sim_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(sim_vars, collapse = " + ")))
+# 
+# # omit SEATPOS
+# sim_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(sim_vars[c(-2)], collapse = " + ")))
 
 # omit BAGDEPLOY_BIN
 sim_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(sim_vars[c(-2, -4)], collapse = " + ")))
@@ -3029,102 +2398,20 @@ final_imp_fit <- imp_model_results_fun(paste("HIPR ~ HIC15_log +", paste(c(occ_v
 # model differs from listwise-deleted model, so will ignore it going forward
 ```
 
+```{r comparing model performance, eval=FALSE, include=FALSE}
+# this code doesn't do anything anymore; leaving for posterity - might want a reminder/structure to compare imputed model performances
 
+compared_imp_models <- list(
+  "uni_imp_fit", 
+  "occ_imp_fit",
+  "env_imp_fit",
+  "sim_imp_fit",
+  "final_imp_fit")
 
-
-
-```{r build model_eval_fun objects, eval=FALSE}
-fit_univariate_eval <- model_eval_imp(
-  survey_design, 
-  fit_univariate
-)
-
-fit_multivariate_occ_eval <- model_eval_imp(
-  survey_design, 
-  fit_multivariate_occ
-)
-
-fit_multivariate_env_eval <- model_eval_imp(
-  survey_design, 
-  fit_multivariate_env
-)
-
-fit_multivariate_sim_eval <- model_eval_imp(
-  survey_design, 
-  fit_multivariate_sim
-)
-
-fit_multivariate_max_eval <- model_eval_imp(
-  survey_design, 
-  fit_multivariate_max
-)
-
-fit_multivariate_max_eval_simple <- model_eval_imp(
-  survey_design, 
-  fit_multivariate_max_simple
-)
+compare_df_fun(compared_imp_models)
 ```
 
-
-```{r comparing model performance, eval=FALSE}
-compared_models <- c(
-  "fit_univariate", 
-  "fit_multivariate_occ",
-  "fit_multivariate_env",
-  "fit_multivariate_sim",
-  "fit_multivariate_max_simple",)
-
-compare_df_fun(compared_models)
-```
-
-
-```{r make DV_MPH categories, eval=FALSE}
-# create DV_MPH_two var where DVMPH is 0 if DVMPH < 35 and 1 if DVMPH >= 35
-madymo_nhtsa_df$DV_MPH_two <- ifelse(madymo_nhtsa_df$DV_MPH < 35, 0, 1)
-madymo_nhtsa_df$DV_MPH_two <- as.factor(madymo_nhtsa_df$DV_MPH_two)
-
-
-# create DV_MPH_three var where DVMPH is 0 if DVMPH < 25, 1 if DV_MPH is 25-45, and 2 if DV_MPH > 45
-madymo_nhtsa_df$DV_MPH_three <- ifelse(madymo_nhtsa_df$DV_MPH < 25, 0, ifelse(madymo_nhtsa_df$DV_MPH < 45, 1, 2))
-madymo_nhtsa_df$DV_MPH_three <- as.factor(madymo_nhtsa_df$DV_MPH_three)
-
-
-# create DV_MPH_high var where DVMPH is 0 if DVMPH < 50 and 1 if DVMPH >= 50
-madymo_nhtsa_df$DV_MPH_high <- ifelse(madymo_nhtsa_df$DV_MPH < 50, 0, 1)
-madymo_nhtsa_df$DV_MPH_high <- as.factor(madymo_nhtsa_df$DV_MPH_high)
-```
-
-
-
-```{r visualize outcome variables}
-# examine frequency of DV_MPH values for all crashes with histogram
-ggplot(madymo_nhtsa_df, aes(x = DV_MPH)) +
-  geom_histogram(binwidth = 2.5) +
-  labs(title = "Distribution of Crash Speeds (All)", x = "Crash Speed (mph)", y = "Frequency") +
-  # x axis every 5 mph
-  scale_x_continuous(breaks = seq(0, max_DV_MPH, by = min_DV_MPH))
-
-# examine frequency of head injury values by speed for all crashes with histogram
-ggplot(madymo_nhtsa_df, aes(x = DV_MPH, fill = HIPR)) +
-  geom_histogram(binwidth = 5, position = "dodge") +
-  labs(title = "Distribution of Crash Speeds by Injury Status (All)", x = "Crash Speed (mph)", y = "Frequency") +
-  scale_fill_manual(values = c("0" = "blue", "1" = "red")) +
-  scale_x_continuous(breaks = seq(0, max_DV_MPH, by = min_DV_MPH))
-
-# examine frequency of head injury values by speed for all crashes, separated by SEATPOS with histogram
-ggplot(madymo_nhtsa_df, aes(x = DV_MPH, fill = HIPR)) +
-  geom_histogram(binwidth = 5, position = "dodge") +
-  labs(title = "Distribution of Crash Speeds by Injury Status (All)", x = "Crash Speed (mph)", y = "Frequency") +
-  scale_fill_manual(values = c("0" = "blue", "1" = "red")) +
-  scale_x_continuous(breaks = seq(0, max_DV_MPH, by = min_DV_MPH)) +
-  facet_wrap(~SEATPOS) +
-  # replace fill names with "Driver" and "Passenger"
-  guides(fill = guide_legend(title = "Head injury"))
-
-```
-
-
-```{r clean environment, eval=FALSE}
+```{r clean environment, eval=FALSE, include=FALSE}
 # clean unnecessary objects from enviroment
 # clean out all items in environment except ones in kept_items
 kept_items <- c("madymo_nhtsa_df", "MADYMO_df", "explore_df", "individual_count", "vehicle_count", "data_path_2000_2015", "univariate_models", "cols_final", "cols_all")
@@ -3138,7 +2425,7 @@ library(data.table)
 fwrite(madymo_nhtsa_df, file = file.path("data", "madymo_nhtsa_df.csv"))
 ```
 
-```{r DAG causal model, eval=FALSE}
+```{r DAG causal model, eval=FALSE, echo=FALSE}
 # Using dagitty
 library(dagitty)
 dag <- dagitty("dag {
@@ -3169,7 +2456,7 @@ grViz("
 ")
 ```
 
-```{r DAG validation model, eval=FALSE}
+```{r DAG validation model, eval=FALSE, echo=FALSE}
 library(DiagrammeR)
 
 grViz("
