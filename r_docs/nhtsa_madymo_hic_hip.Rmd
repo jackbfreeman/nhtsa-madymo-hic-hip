@@ -24,6 +24,8 @@ library(naniar)
 library(gridExtra)
 library(mice)
 library(effsize)
+
+
 knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
 data_path_2000_2015 <- file.path("data", "NHTSA_databases", "NHTSA All files")
 ```
@@ -1731,7 +1733,7 @@ roc_compare_grid_fun <- function(models_obj, col_num = 3) {
 }
 ```
 
-```{r AUC grid example, eval=FALSE, echo=FALSE}
+```{r AUC grid example, echo=FALSE, fig.width=9, fig.height=5, out.width="100%"}
 # Step 1: Named list of main model objects
 # model_objs_listwise_stepwise <- list(
 #   "Univariate" = univariate_model_listwise,
@@ -1986,7 +1988,7 @@ roc_grid_interaction_fun <- function(
 }
 ```
 
-```{r ROC grid interaction example, echo=FALSE, fig.width=10, fig.height=6, out.width="100%"}
+```{r ROC grid interaction example, echo=FALSE, fig.width=12, fig.height=8, out.width="100%"}
 roc_grid_interaction_fun(
   df = madymo_nhtsa_df_listwise,
   var_x = DVEST_MPH,
