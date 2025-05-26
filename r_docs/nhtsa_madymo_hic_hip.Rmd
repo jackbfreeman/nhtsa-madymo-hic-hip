@@ -722,21 +722,12 @@ nhtsa_combined_df[cols_factor] <- lapply(nhtsa_combined_df[cols_factor], factor)
 
 cols_explore <- c(cols_factor, "AGE", "BMI", "DV_MPH", "DVEST", "DVEST_MPH", "DVBASIS")
 
-explore_df <- subset(nhtsa_combined_df, select = cols_explore)
-explore_df$DVBASIS <- as.factor(explore_df$DVBASIS)
+# explore_df <- subset(nhtsa_combined_df, select = cols_explore)
+# explore_df$DVBASIS <- as.factor(explore_df$DVBASIS)
 # add IND_ID var which is a unique identifier for each individual
 
 # print criteria_list in- and exclusion counts
 print(paste(criteria_list))
-```
-
-### Summary information after applying in- and exclusion criteria
-
-```{r print after-filter summary, include=FALSE}
-# explore data
-summary(explore_df)
-
-rm(explore_df)
 ```
 
 ```{r join MADYMO data, include=FALSE}
@@ -758,6 +749,7 @@ MADYMO_df$BAGDEPLOY_BIN <- as.factor(MADYMO_df$BAGDEPLOY_BIN)
 madymo_nhtsa_df <- nhtsa_combined_df %>%
   left_join(MADYMO_df, by = join_by(DV_MPH == DVTOTAL, SEATPOS == SEATPOS, BELTUSE_BIN == BELTUSE_BIN, BAGDEPLOY_BIN == BAGDEPLOY_BIN))
 
+
 # get rid of environment items that are not needed
 rm(
   MADYMO_df,
@@ -765,6 +757,7 @@ rm(
 )
 
 ```
+
 
 ```{r vars into strings, include=FALSE}
 # replace weather numbers with strings
@@ -796,11 +789,26 @@ madymo_nhtsa_df$DRGINV <- as.character(madymo_nhtsa_df$DRGINV)
 madymo_nhtsa_df$DRGINV[madymo_nhtsa_df$DRGINV == 1] <- "yes"
 madymo_nhtsa_df$DRGINV[madymo_nhtsa_df$DRGINV == 2] <- "no"
 
-
 # SEATPOS to string
 madymo_nhtsa_df$SEATPOS <- as.character(madymo_nhtsa_df$SEATPOS)
 madymo_nhtsa_df$SEATPOS[madymo_nhtsa_df$SEATPOS == 11] <- "driver"
 madymo_nhtsa_df$SEATPOS[madymo_nhtsa_df$SEATPOS == 13] <- "passenger"
+
+# belt use to yes/no
+madymo_nhtsa_df$BELTUSE_BIN <- as.character(madymo_nhtsa_df$BELTUSE_BIN)
+madymo_nhtsa_df$BELTUSE_BIN[madymo_nhtsa_df$BELTUSE_BIN == 0] <- "no"
+madymo_nhtsa_df$BELTUSE_BIN[madymo_nhtsa_df$BELTUSE_BIN == 1] <- "yes"
+
+# BAGDEPLOY_BIN to string
+madymo_nhtsa_df$BAGDEPLOY_BIN <- as.character(madymo_nhtsa_df$BAGDEPLOY_BIN)
+madymo_nhtsa_df$BAGDEPLOY_BIN[madymo_nhtsa_df$BAGDEPLOY_BIN == 0] <- "no"
+madymo_nhtsa_df$BAGDEPLOY_BIN[madymo_nhtsa_df$BAGDEPLOY_BIN == 1] <- "yes"
+
+# SEX to string
+madymo_nhtsa_df$SEX_BIN <- as.character(madymo_nhtsa_df$SEX_BIN)
+madymo_nhtsa_df$SEX_BIN[madymo_nhtsa_df$SEX_BIN == "m"] <- "male"
+madymo_nhtsa_df$SEX_BIN[madymo_nhtsa_df$SEX_BIN == "f"] <- "female"
+
 
 # categorize time into 5 levels
 madymo_nhtsa_df <- madymo_nhtsa_df %>%
@@ -856,7 +864,7 @@ madymo_nhtsa_df$HIC15_sqrt <-
   sqrt(madymo_nhtsa_df$HIC15)
 ```
 
-```{r print summary of relevant variables, echo=FALSE}
+```{r print summary of relevant variables, include=FALSE}
 # before beginning resource-intensive multiple imputation, make sure to only keep relevant columns
 columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "HEIGHT", "WEIGHT", "DV_MPH", "DVEST_MPH", "BODYTYPE", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "TIME_cat", "VEHTYPE", "HIC15", "HIC15_log")
 
@@ -1307,6 +1315,23 @@ rm(
 )
 ```
 
+```{r save madymo nhtsa df, include=FALSE}
+# save madymo_nhtsa_df to csv
+vroom::vroom_write(madymo_nhtsa_df_listwise, file = file.path("data", "madymo_nhtsa_df_listwise.csv"))
+
+```
+
+```{r load madymo nhtsa df, include=FALSE}
+# read madymo_nhtsa_df.csv with vroom
+madymo_nhtsa_df_listwise <- vroom::vroom(file.path("data", "madymo_nhtsa_df_listwise.csv"))
+```
+
+
+### Summary information after applying in- and exclusion criteria and deleting missing data
+
+```{r variables summary, echo=FALSE}
+summary(madymo_nhtsa_df_listwise)
+```
 
 ### Define variable groups for logistic regression analysis
 
@@ -1327,7 +1352,7 @@ print(paste("Simulation variables: ", paste(sim_vars, collapse = ", ")))
 ### Compare logistic regression models
 
 
-```{r listwise models removed missings, eval=FALSE, include=FALSE}
+```{r listwise models, eval=FALSE, include=FALSE}
 # univariate model
 univariate_model_listwise <- model_eval_fun(
   formula = "HIPR ~ HIC15_log",
@@ -1532,6 +1557,36 @@ summary(multivariate_model_listwise_final$model)
 # remaining covariates: BMI + DV_MPH
 
 
+
+```
+
+
+```{r interaction models, eval=FALSE, include=FALSE}
+multivariate_model_listwise_final_interaction <- model_eval_fun(
+  formula = 
+    "HIPR ~ HIC15_log + BMI + DV_MPH + BMI * HIC15_log + DV_MPH * HIC15_log",
+  data = madymo_nhtsa_df_listwise
+)
+summary(multivariate_model_listwise_final_interaction$model)
+
+# neither interaction term is significant, so univariate model is sufficient
+```
+
+```{r save models as objects, eval=FALSE, include=FALSE}
+# save all models as objects to load later
+save(
+  univariate_model_listwise,
+  multivariate_model_listwise_occ,
+  multivariate_model_listwise_env,
+  multivariate_model_listwise_sim,
+  multivariate_model_listwise_final,
+  multivariate_model_listwise_final_interaction,
+  file = file.path("data", "madymo_nhtsa_models.RData")
+)
+```
+
+```{r load models, include=FALSE}
+load(file.path("data", "madymo_nhtsa_models.RData"))
 ```
 
 
@@ -1542,7 +1597,8 @@ comp <- c(
   "multivariate_model_listwise_occ",
   "multivariate_model_listwise_env",
   "multivariate_model_listwise_sim",
-  "multivariate_model_listwise_final")
+  "multivariate_model_listwise_final",
+  "multivariate_model_listwise_final_interaction")
 
 models_listwise_comparison_df <- compare_df_fun(comp)
 print(models_listwise_comparison_df)
@@ -2007,6 +2063,18 @@ interaction_roc_grid_obj <- roc_grid_interaction_fun(
     max(madymo_nhtsa_df_listwise$BMI)
   )
 )
+
+# save interaction_roc_grid_obj
+save(
+  interaction_roc_grid_obj,
+  file = file.path("data", "interaction_roc_grid_obj.RData"
+  ))
+```
+
+```{r load interaction grid object, echo=FALSE}
+load(
+  file = file.path("data", "interaction_roc_grid_obj.RData"
+  ))
 ```
 
 ```{r ROC grid interaction ggplot, echo=FALSE, fig.width=12, fig.height=8, out.width="100%"}
