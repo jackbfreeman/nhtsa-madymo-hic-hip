@@ -4,9 +4,9 @@ title: "A validation study of the Head Injury Criterion in the MADYMO software p
 author: "Jack Freeman"
 date: "`r Sys.Date()`"
 output:
-  html_document: default
-  word_document: default
   pdf_document: default
+  word_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -92,7 +92,11 @@ Each real-world crash occupant included from the NASS-CDS data will be matched t
 
 ## Study population
 
-NHTSA, a branch of the United States Department of Transportation, began investigating and cataloging injuries sustained by Americans who were involved in car crashesunder the NASS-CDS program in 1979 (9). The records of this project contain detailed information about the circumstances about the crash (taken from police records), the physical features of each individual involved, and the medical diagnoses that were given at or around the time of the crash, including the severity, anatomic location, and nature of injury derived from medical records **(10)**.
+NHTSA, a branch of the United States Department of Transportation, began investigating and cataloging injuries sustained by Americans who were involved in car crashes under the NASS-CDS program in 1979 **(9)**. The records of this project contain detailed information about the circumstances about the crash (taken from police records), the physical features of each individual involved, and the medical diagnoses that were given at or around the time of the crash, including the severity, anatomic location, and nature of injury derived from medical records **(10)**.
+
+```{r, echo=FALSE}
+table_1
+```
 
 The NASS-CDS was meant to be an accurate representation of the total US population, so it used a complex weighting system to ensure that each year's data can be accurately extrapolated to represent the rest of the country. The population included both injured and healthy Americans.
 
@@ -171,6 +175,10 @@ The first step will be to perform a univariate logistic regression analysis of H
 A three-step multivariate model will be built. The first step introduces each of these crash-related variables to the univariate model one at a time: DV_MPH (continuous), SEATPOS (binary), BELTUSE_BIN (binary), and BAGDEPLOY_BIN (binary). This model demonstrates how accurately HIC15 predicts head injury when considering these four variables. Variables will be kept in the model and considered confounders if they are significant (two-tailed P-value \< 0.05), in this and all multivariate models. Effect modification will be investigated for all statistically significant confounders as they are added to the models. The model will be stratified along any categorical variables that are found to be effect modifiers, and if the effect modifier is a continuous variable, a categorical version of the variable will be created to stratify the analysis. The second step consists of two separate models; one adds to the first multivariate model the occupant-related variables (*e.g.*, age, sex, body mass index); the second model adds only the environmental variables (*e.g.*, vehicle weight, year). The final step will be to create a model that includes all covariates that were found to significantly influence the relationship between HIC15 and HIPr. The predictive performance of the HIC15 will be shown using positive predictive value for each model. Assessing the relationship with different groups of covariates can give insight into the predictive value of specific elements (body, vehicle) of the MADYMO simulation.
 
 The results of these models will also be presented as an OR with 95% CIs and P-values for each variable, and PPV will be derived from each model. A mediation analysis using the mediation R package **(16)** will help determine if any of the variables in the models are mediators. In the case that they are, the causal pathway of the model can be examined with a directional acyclic graph and discussed.
+
+```{r, echo=FALSE}
+univariate_final_roc_grid_viz
+```
 
 ## Sensitivity analysis and model comparison
 

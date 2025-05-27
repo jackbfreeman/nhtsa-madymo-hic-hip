@@ -482,7 +482,6 @@ baseline_desc_fun <- function(df) {
     list(var_name = "ALCINV", label = "Alcohol Involvement (%)", type = "categorical"),
     list(var_name = "WEATHER", label = "Weather Conditions (%)", type = "categorical"),
     list(var_name = "VEHWGT", label = "Vehicle Weight (lbs)", type = "continuous"),
-    # list(var_name = "MAKE", label = "Vehicle Make", type = "categorical"),
     list(var_name = "MODELYR", label = "Vehicle Model Year", type = "continuous"),
     list(var_name = "TIME_cat", label = "Time of Day", type = "categorical"),
     list(var_name = "VEHTYPE", label = "Vehicle Type", type = "categorical")
@@ -498,11 +497,10 @@ baseline_desc_fun <- function(df) {
     stringsAsFactors = FALSE
   )
   
-  
   # Process each variable
   for (var in baseline_vars) {
     if (var$type == "continuous") {
-      # Continuous variables
+      # Continuous variables - same as before
       case_mean <- mean(cases_df[[var$var_name]], na.rm = TRUE)
       case_sd <- sd(cases_df[[var$var_name]], na.rm = TRUE)
       control_mean <- mean(controls_df[[var$var_name]], na.rm = TRUE)
@@ -522,7 +520,7 @@ baseline_desc_fun <- function(df) {
         )
       )
     } else {
-      # Ensure the variable is treated as a factor with all levels including NA
+      # Categorical variables - modified to calculate Wald test for each level
       current_var <- df[[var$var_name]]
       if (!is.factor(current_var)) {
         current_var <- factor(current_var)
@@ -552,14 +550,7 @@ baseline_desc_fun <- function(df) {
       control_counts <- table(control_factor)
       control_pct <- prop.table(control_counts) * 100
       
-      # Statistical test
-      cont_table <- table(df[[var$var_name]], df$HIPR)
-      test_result <- suppressWarnings(chisq.test(cont_table))
-      if (any(test_result$expected < 5)) {
-        test_result <- fisher.test(cont_table, simulate.p.value = TRUE)
-      }
-      
-      # Add header row
+      # Add header row (without p-value since we'll have per-level p-values)
       baseline_descriptives <- rbind(
         baseline_descriptives,
         data.frame(
@@ -567,13 +558,32 @@ baseline_desc_fun <- function(df) {
           Value = "",
           Control = "",
           Case = "",
-          P_Value = format_p(test_result$p.value),
+          P_Value = "",
           stringsAsFactors = FALSE
         )
       )
       
-      # Add levels with proper handling of missing levels
+      # Create a contingency table for the variable
+      cont_table <- table(df[[var$var_name]], df$HIPR)
+      
+      # Calculate Wald test p-values for each level
       for (level in all_levels) {
+        # Skip if level is NA (we'll handle it separately if needed)
+        if (is.na(level)) next
+        
+        # Create a binary version of the variable for this level
+        df$level_var <- as.integer(df[[var$var_name]] == level & !is.na(df[[var$var_name]]))
+        
+        # Fit logistic regression model
+        model <- glm(HIPR ~ level_var, data = df, family = binomial())
+        
+        # Extract Wald test p-value
+        if (nrow(summary(model)$coefficients) > 1) {
+          p_value <- summary(model)$coefficients[2, 4]
+        } else {
+          p_value <- NA
+        }
+        
         control_count <- ifelse(is.na(control_counts[level]), 0, control_counts[level])
         control_pct_val <- ifelse(is.na(control_pct[level]), 0, control_pct[level])
         case_count <- ifelse(is.na(case_counts[level]), 0, case_counts[level])
@@ -586,7 +596,40 @@ baseline_desc_fun <- function(df) {
             Value = level,
             Control = sprintf("%d (%.1f%%)", control_count, control_pct_val),
             Case = sprintf("%d (%.1f%%)", case_count, case_pct_val),
-            P_Value = "",
+            P_Value = format_p(p_value),
+            stringsAsFactors = FALSE
+          )
+        )
+      }
+      
+      # Handle NA level if present
+      if (has_na) {
+        level <- NA
+        df$level_var <- as.integer(is.na(df[[var$var_name]]))
+        
+        # Fit logistic regression model for NA level
+        model <- glm(HIPR ~ level_var, data = df, family = binomial())
+        
+        # Extract Wald test p-value
+        if (nrow(summary(model)$coefficients) > 1) {
+          p_value <- summary(model)$coefficients[2, 4]
+        } else {
+          p_value <- NA
+        }
+        
+        control_count <- control_counts[is.na(names(control_counts))]
+        control_pct_val <- control_pct[is.na(names(control_pct))]
+        case_count <- case_counts[is.na(names(case_counts))]
+        case_pct_val <- case_pct[is.na(names(case_pct))]
+        
+        baseline_descriptives <- rbind(
+          baseline_descriptives,
+          data.frame(
+            Characteristic = "",
+            Value = "Missing",
+            Control = sprintf("%d (%.1f%%)", control_count, control_pct_val),
+            Case = sprintf("%d (%.1f%%)", case_count, case_pct_val),
+            P_Value = format_p(p_value),
             stringsAsFactors = FALSE
           )
         )
@@ -596,8 +639,13 @@ baseline_desc_fun <- function(df) {
   
   # View the final table using kable
   kable(baseline_descriptives, format = "latex")
-  # print(baseline_descriptives)
 }
+
+  
+  # View the final table 
+  
+  # print(baseline_descriptives)
+
 
 
 
@@ -650,7 +698,7 @@ models <- list(
  "Final" = multivariate_model_listwise_final
 )
 models_prep <- roc_grid_prep_fun(models)
-fig_1 <- roc_compare_grid_fun(models_prep, col_num = 2)
+univariate_final_roc_grid_viz <- roc_compare_grid_fun(models_prep, col_num = 2)
 
 
 
