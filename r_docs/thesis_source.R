@@ -114,9 +114,9 @@ compare_df_fun <- function(models) {
     specificity <- get(model)$metrics$Specificity
     # correlation <- get(model)$metrics$Correlation
     # get n.event from mycurve$basics 
-    num_cases <- get(model)$metrics$Cases
+    # num_cases <- get(model)$metrics$Cases
     # count number of HIPR == 0
-    num_controls <- get(model)$metrics$Controls
+    # num_controls <- get(model)$metrics$Controls
     p_value <- get(model)$metrics$p_value
     se <- get(model)$metrics$se
     beta <- get(model)$metrics$beta
@@ -135,11 +135,11 @@ compare_df_fun <- function(models) {
       Sensitivity = sensitivity,
       Specificity = specificity,
       # Correlation = correlation,
-      Cases = num_cases,
-      Controls = num_controls,
+      # Cases = num_cases,
+      # Controls = num_controls,
       HIC_Beta = beta,
       HIC_SE = se,
-      HIC_P_value = format_p(p_value)
+      P_value = format_p(p_value)
     )
     
     # Append the new row to the comparison dataframe
@@ -230,7 +230,7 @@ roc_compare_grid_fun <- function(models_obj, col_num = 3) {
     facet_wrap(~ Model, ncol = col_num) +
     geom_text(
       data = label_df,
-      aes(x = 0.75, y = 0.3, label = label),  # Adjust position if needed
+      aes(x = 0.65, y = 0.25, label = label),  # Adjust position if needed
       inherit.aes = FALSE,
       size = 3,
       hjust = 0
@@ -450,9 +450,9 @@ roc_grid_plot <- function(roc_data) {
     facet_wrap(~ Model, ncol = roc_data$col_num) +
     geom_text(
       data = roc_data$label_df,
-      aes(x = 0.75, y = 0.3, label = label),
+      aes(x = 0.65, y = 0.3, label = label),
       inherit.aes = FALSE,
-      size = 2.5,
+      size = 1.5,
       hjust = 0
     ) +
     theme_minimal() +
@@ -460,7 +460,9 @@ roc_grid_plot <- function(roc_data) {
       title = "ROC Curves by Model",
       x = paste0(roc_data$var_y_lab, "\n1 - Specificity (False Positive Rate)"),
       y = paste0(roc_data$var_x_lab, "\nSensitivity (True Positive Rate)")
-    )
+    ) +
+    theme(text=element_text(size=6)
+          )
 }
 
 # for continuous variables, t.test
@@ -689,6 +691,9 @@ comp <- c(
   "multivariate_model_listwise_final_interaction")
 
 models_listwise_comparison_df <- compare_df_fun(comp)
+models_listwise_comparison_df$Model <- c("Univariate", 
+             "Final", 
+             "Interaction")
 print(models_listwise_comparison_df)
 
 
@@ -707,5 +712,10 @@ load(
   file = file.path("data", "interaction_roc_grid_obj.RData"
   ))
 interaction_grid_viz <- roc_grid_plot(interaction_roc_grid_obj)
+
+load(
+  file = file.path("data", "interaction_roc_grid_obj_new_bmi_split.RData"
+  ))
+interaction_grid_viz_new_bmi_split <- roc_grid_plot(interaction_roc_grid_obj)
 
 table_1 <- baseline_desc_fun(madymo_nhtsa_df_listwise)
