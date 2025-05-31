@@ -722,21 +722,12 @@ nhtsa_combined_df[cols_factor] <- lapply(nhtsa_combined_df[cols_factor], factor)
 
 cols_explore <- c(cols_factor, "AGE", "BMI", "DV_MPH", "DVEST", "DVEST_MPH", "DVBASIS")
 
-explore_df <- subset(nhtsa_combined_df, select = cols_explore)
-explore_df$DVBASIS <- as.factor(explore_df$DVBASIS)
+# explore_df <- subset(nhtsa_combined_df, select = cols_explore)
+# explore_df$DVBASIS <- as.factor(explore_df$DVBASIS)
 # add IND_ID var which is a unique identifier for each individual
 
 # print criteria_list in- and exclusion counts
 print(paste(criteria_list))
-```
-
-### Summary information after applying in- and exclusion criteria
-
-```{r print after-filter summary, include=FALSE}
-# explore data
-summary(explore_df)
-
-rm(explore_df)
 ```
 
 ```{r join MADYMO data, include=FALSE}
@@ -758,6 +749,7 @@ MADYMO_df$BAGDEPLOY_BIN <- as.factor(MADYMO_df$BAGDEPLOY_BIN)
 madymo_nhtsa_df <- nhtsa_combined_df %>%
   left_join(MADYMO_df, by = join_by(DV_MPH == DVTOTAL, SEATPOS == SEATPOS, BELTUSE_BIN == BELTUSE_BIN, BAGDEPLOY_BIN == BAGDEPLOY_BIN))
 
+
 # get rid of environment items that are not needed
 rm(
   MADYMO_df,
@@ -765,6 +757,7 @@ rm(
 )
 
 ```
+
 
 ```{r vars into strings, include=FALSE}
 # replace weather numbers with strings
@@ -796,11 +789,26 @@ madymo_nhtsa_df$DRGINV <- as.character(madymo_nhtsa_df$DRGINV)
 madymo_nhtsa_df$DRGINV[madymo_nhtsa_df$DRGINV == 1] <- "yes"
 madymo_nhtsa_df$DRGINV[madymo_nhtsa_df$DRGINV == 2] <- "no"
 
-
 # SEATPOS to string
 madymo_nhtsa_df$SEATPOS <- as.character(madymo_nhtsa_df$SEATPOS)
 madymo_nhtsa_df$SEATPOS[madymo_nhtsa_df$SEATPOS == 11] <- "driver"
 madymo_nhtsa_df$SEATPOS[madymo_nhtsa_df$SEATPOS == 13] <- "passenger"
+
+# belt use to yes/no
+madymo_nhtsa_df$BELTUSE_BIN <- as.character(madymo_nhtsa_df$BELTUSE_BIN)
+madymo_nhtsa_df$BELTUSE_BIN[madymo_nhtsa_df$BELTUSE_BIN == 0] <- "no"
+madymo_nhtsa_df$BELTUSE_BIN[madymo_nhtsa_df$BELTUSE_BIN == 1] <- "yes"
+
+# BAGDEPLOY_BIN to string
+madymo_nhtsa_df$BAGDEPLOY_BIN <- as.character(madymo_nhtsa_df$BAGDEPLOY_BIN)
+madymo_nhtsa_df$BAGDEPLOY_BIN[madymo_nhtsa_df$BAGDEPLOY_BIN == 0] <- "no"
+madymo_nhtsa_df$BAGDEPLOY_BIN[madymo_nhtsa_df$BAGDEPLOY_BIN == 1] <- "yes"
+
+# SEX to string
+madymo_nhtsa_df$SEX_BIN <- as.character(madymo_nhtsa_df$SEX_BIN)
+madymo_nhtsa_df$SEX_BIN[madymo_nhtsa_df$SEX_BIN == "m"] <- "male"
+madymo_nhtsa_df$SEX_BIN[madymo_nhtsa_df$SEX_BIN == "f"] <- "female"
+
 
 # categorize time into 5 levels
 madymo_nhtsa_df <- madymo_nhtsa_df %>%
@@ -856,7 +864,7 @@ madymo_nhtsa_df$HIC15_sqrt <-
   sqrt(madymo_nhtsa_df$HIC15)
 ```
 
-```{r print summary of relevant variables, echo=FALSE}
+```{r print summary of relevant variables, include=FALSE}
 # before beginning resource-intensive multiple imputation, make sure to only keep relevant columns
 columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", "SEATPOS", "SEX_BIN", "YEAR", "AGE", "HEIGHT", "WEIGHT", "DV_MPH", "DVEST_MPH", "BODYTYPE", "PSU", "PSUSTRAT", "RATWGT", "ALCINV", "DRGINV", "MAKE", "MODELYR", "VEHWGT", "WEATHER", "TIME", "TIME_cat", "VEHTYPE", "HIC15", "HIC15_log")
 
@@ -1307,6 +1315,23 @@ rm(
 )
 ```
 
+```{r save madymo nhtsa df, include=FALSE}
+# save madymo_nhtsa_df to csv
+vroom::vroom_write(madymo_nhtsa_df_listwise, file = file.path("data", "madymo_nhtsa_df_listwise.csv"))
+
+```
+
+```{r load madymo nhtsa df, include=FALSE}
+# read madymo_nhtsa_df.csv with vroom
+madymo_nhtsa_df_listwise <- vroom::vroom(file.path("data", "madymo_nhtsa_df_listwise.csv"))
+```
+
+
+### Summary information after applying in- and exclusion criteria and deleting missing data
+
+```{r variables summary, echo=FALSE}
+summary(madymo_nhtsa_df_listwise)
+```
 
 ### Define variable groups for logistic regression analysis
 
@@ -1327,7 +1352,7 @@ print(paste("Simulation variables: ", paste(sim_vars, collapse = ", ")))
 ### Compare logistic regression models
 
 
-```{r listwise models removed missings, eval=FALSE, include=FALSE}
+```{r listwise models, eval=FALSE, include=FALSE}
 # univariate model
 univariate_model_listwise <- model_eval_fun(
   formula = "HIPR ~ HIC15_log",
@@ -1532,6 +1557,36 @@ summary(multivariate_model_listwise_final$model)
 # remaining covariates: BMI + DV_MPH
 
 
+
+```
+
+
+```{r interaction models, eval=FALSE, include=FALSE}
+multivariate_model_listwise_final_interaction <- model_eval_fun(
+  formula = 
+    "HIPR ~ HIC15_log + BMI + DV_MPH + BMI * HIC15_log + DV_MPH * HIC15_log",
+  data = madymo_nhtsa_df_listwise
+)
+summary(multivariate_model_listwise_final_interaction$model)
+
+# neither interaction term is significant, so univariate model is sufficient
+```
+
+```{r save models as objects, eval=FALSE, include=FALSE}
+# save all models as objects to load later
+save(
+  univariate_model_listwise,
+  multivariate_model_listwise_occ,
+  multivariate_model_listwise_env,
+  multivariate_model_listwise_sim,
+  multivariate_model_listwise_final,
+  multivariate_model_listwise_final_interaction,
+  file = file.path("data", "madymo_nhtsa_models.RData")
+)
+```
+
+```{r load models, include=FALSE}
+load(file.path("data", "madymo_nhtsa_models.RData"))
 ```
 
 
@@ -1542,7 +1597,8 @@ comp <- c(
   "multivariate_model_listwise_occ",
   "multivariate_model_listwise_env",
   "multivariate_model_listwise_sim",
-  "multivariate_model_listwise_final")
+  "multivariate_model_listwise_final",
+  "multivariate_model_listwise_final_interaction")
 
 models_listwise_comparison_df <- compare_df_fun(comp)
 print(models_listwise_comparison_df)
@@ -2007,6 +2063,18 @@ interaction_roc_grid_obj <- roc_grid_interaction_fun(
     max(madymo_nhtsa_df_listwise$BMI)
   )
 )
+
+# save interaction_roc_grid_obj
+save(
+  interaction_roc_grid_obj,
+  file = file.path("data", "interaction_roc_grid_obj.RData"
+  ))
+```
+
+```{r load interaction grid object, echo=FALSE}
+load(
+  file = file.path("data", "interaction_roc_grid_obj.RData"
+  ))
 ```
 
 ```{r ROC grid interaction ggplot, echo=FALSE, fig.width=12, fig.height=8, out.width="100%"}
@@ -2034,7 +2102,6 @@ baseline_desc_fun <- function(df) {
     list(var_name = "ALCINV", label = "Alcohol Involvement (%)", type = "categorical"),
     list(var_name = "WEATHER", label = "Weather Conditions (%)", type = "categorical"),
     list(var_name = "VEHWGT", label = "Vehicle Weight (lbs)", type = "continuous"),
-    # list(var_name = "MAKE", label = "Vehicle Make", type = "categorical"),
     list(var_name = "MODELYR", label = "Vehicle Model Year", type = "continuous"),
     list(var_name = "TIME_cat", label = "Time of Day", type = "categorical"),
     list(var_name = "VEHTYPE", label = "Vehicle Type", type = "categorical")
@@ -2050,11 +2117,10 @@ baseline_desc_fun <- function(df) {
     stringsAsFactors = FALSE
   )
   
-  
   # Process each variable
   for (var in baseline_vars) {
     if (var$type == "continuous") {
-      # Continuous variables
+      # Continuous variables - same as before
       case_mean <- mean(cases_df[[var$var_name]], na.rm = TRUE)
       case_sd <- sd(cases_df[[var$var_name]], na.rm = TRUE)
       control_mean <- mean(controls_df[[var$var_name]], na.rm = TRUE)
@@ -2074,7 +2140,7 @@ baseline_desc_fun <- function(df) {
         )
       )
     } else {
-      # Ensure the variable is treated as a factor with all levels including NA
+      # Categorical variables - modified to calculate Wald test for each level
       current_var <- df[[var$var_name]]
       if (!is.factor(current_var)) {
         current_var <- factor(current_var)
@@ -2104,14 +2170,7 @@ baseline_desc_fun <- function(df) {
       control_counts <- table(control_factor)
       control_pct <- prop.table(control_counts) * 100
       
-      # Statistical test
-      cont_table <- table(df[[var$var_name]], df$HIPR)
-      test_result <- suppressWarnings(chisq.test(cont_table))
-      if (any(test_result$expected < 5)) {
-        test_result <- fisher.test(cont_table, simulate.p.value = TRUE)
-      }
-      
-      # Add header row
+      # Add header row (without p-value since we'll have per-level p-values)
       baseline_descriptives <- rbind(
         baseline_descriptives,
         data.frame(
@@ -2119,13 +2178,32 @@ baseline_desc_fun <- function(df) {
           Value = "",
           Control = "",
           Case = "",
-          P_Value = format_p(test_result$p.value),
+          P_Value = "",
           stringsAsFactors = FALSE
         )
       )
       
-      # Add levels with proper handling of missing levels
+      # Create a contingency table for the variable
+      cont_table <- table(df[[var$var_name]], df$HIPR)
+      
+      # Calculate Wald test p-values for each level
       for (level in all_levels) {
+        # Skip if level is NA (we'll handle it separately if needed)
+        if (is.na(level)) next
+        
+        # Create a binary version of the variable for this level
+        df$level_var <- as.integer(df[[var$var_name]] == level & !is.na(df[[var$var_name]]))
+        
+        # Fit logistic regression model
+        model <- glm(HIPR ~ level_var, data = df, family = binomial())
+        
+        # Extract Wald test p-value
+        if (nrow(summary(model)$coefficients) > 1) {
+          p_value <- summary(model)$coefficients[2, 4]
+        } else {
+          p_value <- NA
+        }
+        
         control_count <- ifelse(is.na(control_counts[level]), 0, control_counts[level])
         control_pct_val <- ifelse(is.na(control_pct[level]), 0, control_pct[level])
         case_count <- ifelse(is.na(case_counts[level]), 0, case_counts[level])
@@ -2138,7 +2216,40 @@ baseline_desc_fun <- function(df) {
             Value = level,
             Control = sprintf("%d (%.1f%%)", control_count, control_pct_val),
             Case = sprintf("%d (%.1f%%)", case_count, case_pct_val),
-            P_Value = "",
+            P_Value = format_p(p_value),
+            stringsAsFactors = FALSE
+          )
+        )
+      }
+      
+      # Handle NA level if present
+      if (has_na) {
+        level <- NA
+        df$level_var <- as.integer(is.na(df[[var$var_name]]))
+        
+        # Fit logistic regression model for NA level
+        model <- glm(HIPR ~ level_var, data = df, family = binomial())
+        
+        # Extract Wald test p-value
+        if (nrow(summary(model)$coefficients) > 1) {
+          p_value <- summary(model)$coefficients[2, 4]
+        } else {
+          p_value <- NA
+        }
+        
+        control_count <- control_counts[is.na(names(control_counts))]
+        control_pct_val <- control_pct[is.na(names(control_pct))]
+        case_count <- case_counts[is.na(names(case_counts))]
+        case_pct_val <- case_pct[is.na(names(case_pct))]
+        
+        baseline_descriptives <- rbind(
+          baseline_descriptives,
+          data.frame(
+            Characteristic = "",
+            Value = "Missing",
+            Control = sprintf("%d (%.1f%%)", control_count, control_pct_val),
+            Case = sprintf("%d (%.1f%%)", case_count, case_pct_val),
+            P_Value = format_p(p_value),
             stringsAsFactors = FALSE
           )
         )
@@ -2148,7 +2259,6 @@ baseline_desc_fun <- function(df) {
   
   # View the final table using kable
   kable(baseline_descriptives, format = "latex")
-  # print(baseline_descriptives)
 }
 ```
 
