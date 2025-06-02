@@ -28,7 +28,17 @@ source(file.path("r_docs", "thesis_source.R"))
 
 # Abstract
 
-WRITE THIS AT THE END
+## Introduction
+
+Head injuries, particularly traumatic brain injuries, are severe consequences of car crashes. The Head Injury Criterion (HIC), specifically HIC15 (measuring head acceleration over 15 milliseconds), is a key risk indicator, with higher scores signaling greater injury likelihood. Although MADYMO simulations generate HIC15 scores validated against crash test dummy experiments, their accuracy in predicting real-world head injuries remains unproven. This study compares MADYMO-derived HIC15 values to head injury risks from US national crash data to validate their real-world applicability. It further investigates how crash factors (e.g., delta V, seatbelt use, airbag deployment), occupant characteristics (age, sex, BMI), and environmental variables (car weight, weather) influence the relationship between simulated HIC15 and actual injury outcomes. By analyzing these interactions, the research aims to improve understanding of MADYMO’s predictive utility for real-world head injuries and inform strategies to mitigate such risks in crashes and other scenarios.
+
+## Methods
+
+Using the USA National Highway Traffic Safety Administration's (NHTSA) NASS-CDS (National Automotive Sampling System Crashworthiness Data System) database, the research compares MADYMO's HIC15 values with real-world head injury presence (HIPr). The study population consists of NASS-CDS records from 2000 to 2015 (16 years inclusive), which includes 150,897 occupants in 126,049 vehicles involved in USA car crashes during this period.
+
+First a univariate logistic regression model will compare HIC15 to HIPr. Then multivariate models will be built, one model incorporating occupant-related variables (*e.g.*, age, sex, body mass index) and another incorporating environmental variables (*e.g.*, vehicle weight, year). The purpose of this is to examine the effects of the simulation's occupant separately from its environment. Then a final multivariate logistic regression model will include all covariates that were found to be significant, stratifying the analysis where appropriate if effect modification is found.
+
+The predictive performance of the HIC15 will be shown using positive predictive value for each model. Establishing the degree of correlation between HIC15 and HIPr can provide insight into the degree of utility of HIC15 for assessing head injury risk in vehicle safety testing and in other engineering and design applications, as well as for forensic medical and engineering disciplines.
 
 # Introduction
 
