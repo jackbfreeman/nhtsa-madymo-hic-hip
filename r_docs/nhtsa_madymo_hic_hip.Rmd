@@ -607,7 +607,7 @@ criteria_list <- c(
     criteria_list,
     before_DVEST_MPH = paste0(
     "Count after DOF1 %in% c(1, 11, 12, 21, 31, 32, 41, 51, 52, 61, 71, 72, 81, 91, 92): ", 
-    data_counts$before_DVEST_MPH)
+    data_counts$before_DVEST)
   )
 # print(
 #   criteria_list$before_DVEST_MPH
@@ -728,6 +728,9 @@ cols_explore <- c(cols_factor, "AGE", "BMI", "DV_MPH", "DVEST", "DVEST_MPH", "DV
 
 # print criteria_list in- and exclusion counts
 print(paste(criteria_list))
+
+# save criteria_list to object
+save(criteria_list, file = file.path("data", "criteria_list.RData"))
 ```
 
 ```{r join MADYMO data, include=FALSE}
@@ -755,23 +758,29 @@ rm(
   MADYMO_df,
   nhtsa_combined_df
 )
-
 ```
 
 
-```{r vars into strings, include=FALSE}
+```{r vars into strings and define levels, include=FALSE}
 # replace weather numbers with strings
 madymo_nhtsa_df$WEATHER <- as.character(madymo_nhtsa_df$WEATHER)
 madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 0] <- "no adverse conditions"
 madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 1] <- "rain"
-madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 2] <- "sleet/hail"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 2] <- "sleet/hail/fog"
 madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 3] <- "snow"
-madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 4] <- "fog"
-madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 5] <- "rain and fog"
-madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 6] <- "sleet and fog"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 4] <- "sleet/hail/fog"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 5] <- "sleet/hail/fog"
+madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 6] <- "sleet/hail/fog"
 madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 7] <- "other"
 madymo_nhtsa_df$WEATHER[madymo_nhtsa_df$WEATHER == 8] <- "unknown"
-
+# establish WEATHER = 0 as reference value
+madymo_nhtsa_df$WEATHER <- factor(
+  madymo_nhtsa_df$WEATHER, 
+  levels = c(
+    "no adverse conditions", "rain", "sleet/hail/fog", "snow", 
+    "other", "unknown"
+  )
+)
 
 # replace vehicle type with strings
 madymo_nhtsa_df$VEHTYPE <- as.character(madymo_nhtsa_df$VEHTYPE)
@@ -820,6 +829,12 @@ madymo_nhtsa_df <- madymo_nhtsa_df %>%
       include.lowest = TRUE
     )
   )
+
+# convert TIME_cat to factor with levels "morning" "afternoon" "evening" and "night"
+madymo_nhtsa_df$TIME_cat <- factor(
+  madymo_nhtsa_df$TIME_cat,
+  levels = c("morning", "afternoon", "evening", "night")
+)
 ```
 
 ```{r visualize HIC15 and DV_MPH relationship, eval=FALSE, include=FALSE}
@@ -1317,13 +1332,12 @@ rm(
 
 ```{r save madymo nhtsa df, include=FALSE}
 # save madymo_nhtsa_df to csv
-vroom::vroom_write(madymo_nhtsa_df_listwise, file = file.path("data", "madymo_nhtsa_df_listwise.csv"))
-
+saveRDS(madymo_nhtsa_df_listwise, file.path("data", "madymo_nhtsa_df_listwise.rds"))
 ```
 
 ```{r load madymo nhtsa df, include=FALSE}
 # read madymo_nhtsa_df.csv with vroom
-madymo_nhtsa_df_listwise <- vroom::vroom(file.path("data", "madymo_nhtsa_df_listwise.csv"))
+madymo_nhtsa_df_listwise <- readRDS(file.path("data", "madymo_nhtsa_df_listwise.rds"))
 ```
 
 

@@ -20,7 +20,14 @@ library(gridExtra)
 library(mice)
 library(effsize)
 library(kableExtra)
-getwd()
+library(DiagrammeR)
+library(DiagrammeRsvg)
+library(webshot2)
+library(rsvg)
+library(khsmisc)
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+
 # general functions
 # Function to format p-values
 format_p <- function(p) {
@@ -465,9 +472,21 @@ roc_grid_plot <- function(roc_data) {
           )
 }
 
+
 # for continuous variables, t.test
 # for categorical variables, chisq.test (if less than 5, fisher.test)
 baseline_desc_fun <- function(df) {
+  # Helper function to format p-values
+  format_p <- function(p) {
+    if (is.na(p)) {
+      return("")
+    } else if (p < 0.001) {
+      return("<0.001")
+    } else {
+      return(sprintf("%.3f", p))
+    }
+  }
+  
   # Create cases and controls data frames
   cases_df <- df %>% filter(HIPR == 1)
   controls_df <- df %>% filter(HIPR == 0)
@@ -495,20 +514,50 @@ baseline_desc_fun <- function(df) {
     Value = character(),
     Control = character(),
     Case = character(),
+    OR = character(),
     P_Value = character(),
     stringsAsFactors = FALSE
   )
   
+  svy_design_obj <- svydesign(
+        ids = ~ PSU,
+        strata = ~ PSUSTRAT,
+        weights = ~ RATWGT,
+        data = df,
+        nest = TRUE
+      )
+  
   # Process each variable
   for (var in baseline_vars) {
     if (var$type == "continuous") {
-      # Continuous variables - same as before
+      # Continuous variables: Logistic regression for OR and p-value
+      formula <- as.formula(paste("HIPR ~", var$var_name))
+      # define survey design for odds ratios in baseline characteristics
+      
+      # Fit the model
+      model <- svyglm(
+        formula,
+        family = quasibinomial,
+        design = svy_design_obj
+      )
+      
+      
+      coef_table <- summary(model)$coefficients
+      
+      
+      if (nrow(coef_table) > 1) {
+        or_value <- exp(coef_table[2, 1])
+        p_value <- coef_table[2, 4]
+      } else {
+        or_value <- NA
+        p_value <- NA
+      }
+      
+      # Calculate means and SDs
       case_mean <- mean(cases_df[[var$var_name]], na.rm = TRUE)
       case_sd <- sd(cases_df[[var$var_name]], na.rm = TRUE)
       control_mean <- mean(controls_df[[var$var_name]], na.rm = TRUE)
       control_sd <- sd(controls_df[[var$var_name]], na.rm = TRUE)
-      
-      p_value <- t.test(cases_df[[var$var_name]], controls_df[[var$var_name]])$p.value
       
       baseline_descriptives <- rbind(
         baseline_descriptives,
@@ -517,74 +566,102 @@ baseline_desc_fun <- function(df) {
           Value = "Mean (SD)",
           Control = sprintf("%.1f (%.1f)", control_mean, control_sd),
           Case = sprintf("%.1f (%.1f)", case_mean, case_sd),
+          OR = ifelse(is.na(or_value), "NA", sprintf("%.2f", or_value)),
           P_Value = format_p(p_value),
           stringsAsFactors = FALSE
         )
       )
-    } else {
-      # Categorical variables - modified to calculate Wald test for each level
-      current_var <- df[[var$var_name]]
-      if (!is.factor(current_var)) {
-        current_var <- factor(current_var)
-      }
       
-      # Check if there are any NAs in the full dataset
+    } else {
+      # Categorical variables: Process each level
+      current_var <- df[[var$var_name]]
       has_na <- anyNA(current_var)
       
-      # If NAs exist, add NA as a level; otherwise, keep original levels
+      # Convert to factor if needed (preserve existing levels if already factor)
+      if (!is.factor(current_var)) {
+        # If not a factor, convert to factor using existing unique values in their order of appearance
+        current_var <- factor(current_var, levels = unique(current_var))
+      } else {
+        # If already a factor, preserve the existing levels
+        current_var <- factor(current_var, levels = levels(current_var))
+      }
+      
+      # Add NA as a level if missing values exist
       if (has_na) {
         current_var <- addNA(current_var)
       }
       all_levels <- levels(current_var)
       
-      # Get counts and percentages with factors
+      # Get counts for cases and controls
       case_factor <- factor(cases_df[[var$var_name]], levels = all_levels)
       control_factor <- factor(controls_df[[var$var_name]], levels = all_levels)
-      
-      # Apply addNA() only if NAs exist in the full dataset
       if (has_na) {
         case_factor <- addNA(case_factor)
         control_factor <- addNA(control_factor)
       }
       
-      case_counts <- table(case_factor)
+      case_counts <- table(case_factor, useNA = "ifany")
+      control_counts <- table(control_factor, useNA = "ifany")
+      
+      # Identify levels with zero counts in both cases and controls
+      zero_levels <- all_levels[(case_counts == 0) & (control_counts == 0)]
+      
+      # Remove zero-count levels (unless it's the only level left)
+      if (length(zero_levels) > 0 && length(all_levels) > length(zero_levels)) {
+        current_var <- factor(current_var, 
+                              levels = setdiff(all_levels, zero_levels))
+        all_levels <- levels(current_var)
+        
+        # Recalculate counts with updated levels
+        case_factor <- factor(cases_df[[var$var_name]], levels = all_levels)
+        control_factor <- factor(controls_df[[var$var_name]], levels = all_levels)
+        if (has_na) {
+          case_factor <- addNA(case_factor)
+          control_factor <- addNA(control_factor)
+        }
+        
+        case_counts <- table(case_factor, useNA = "ifany")
+        control_counts <- table(control_factor, useNA = "ifany")
+      }
+      
+      # Calculate percentages
       case_pct <- prop.table(case_counts) * 100
-      control_counts <- table(control_factor)
       control_pct <- prop.table(control_counts) * 100
       
-      # Add header row (without p-value since we'll have per-level p-values)
-      baseline_descriptives <- rbind(
-        baseline_descriptives,
-        data.frame(
-          Characteristic = var$label,
-          Value = "",
-          Control = "",
-          Case = "",
-          P_Value = "",
-          stringsAsFactors = FALSE
-        )
+      # Create temporary factor in df for modeling
+      temp_var_name <- paste0("temp_", var$var_name)
+      df[[temp_var_name]] <- current_var
+      
+      # Run logistic regression (handle errors)
+      model_formula <- as.formula(paste("HIPR ~", temp_var_name))
+      model <- tryCatch(
+        glm(model_formula, data = df, family = binomial()),
+        error = function(e) NULL
       )
       
-      # Create a contingency table for the variable
-      cont_table <- table(df[[var$var_name]], df$HIPR)
+      # Precompute ORs and p-values for each level
+      or_values <- rep(NA, length(all_levels))
+      p_values <- rep(NA, length(all_levels))
+      or_values[1] <- 1.0  # Reference level OR = 1
       
-      # Calculate Wald test p-values for each level
-      for (level in all_levels) {
-        # Skip if level is NA (we'll handle it separately if needed)
-        if (is.na(level)) next
-        
-        # Create a binary version of the variable for this level
-        df$level_var <- as.integer(df[[var$var_name]] == level & !is.na(df[[var$var_name]]))
-        
-        # Fit logistic regression model
-        model <- glm(HIPR ~ level_var, data = df, family = binomial())
-        
-        # Extract Wald test p-value
-        if (nrow(summary(model)$coefficients) > 1) {
-          p_value <- summary(model)$coefficients[2, 4]
-        } else {
-          p_value <- NA
+      if (!is.null(model)) {
+        coef_table <- summary(model)$coefficients
+        n_coef <- nrow(coef_table)
+        for (i in 2:length(all_levels)) {
+          if (i <= n_coef) {
+            or_values[i] <- exp(coef_table[i, "Estimate"])
+            p_values[i] <- coef_table[i, "Pr(>|z|)"]
+          }
         }
+      }
+      
+      # Remove temporary variable
+      df[[temp_var_name]] <- NULL
+      
+      # Add rows for each level (reference level first)
+      for (idx in 1:length(all_levels)) {
+        level <- all_levels[idx]
+        level_label <- ifelse(is.na(level), "Missing", as.character(level))
         
         control_count <- ifelse(is.na(control_counts[level]), 0, control_counts[level])
         control_pct_val <- ifelse(is.na(control_pct[level]), 0, control_pct[level])
@@ -594,44 +671,12 @@ baseline_desc_fun <- function(df) {
         baseline_descriptives <- rbind(
           baseline_descriptives,
           data.frame(
-            Characteristic = "",
-            Value = level,
+            Characteristic = if (idx == 1) var$label else "",
+            Value = level_label,
             Control = sprintf("%d (%.1f%%)", control_count, control_pct_val),
             Case = sprintf("%d (%.1f%%)", case_count, case_pct_val),
-            P_Value = format_p(p_value),
-            stringsAsFactors = FALSE
-          )
-        )
-      }
-      
-      # Handle NA level if present
-      if (has_na) {
-        level <- NA
-        df$level_var <- as.integer(is.na(df[[var$var_name]]))
-        
-        # Fit logistic regression model for NA level
-        model <- glm(HIPR ~ level_var, data = df, family = binomial())
-        
-        # Extract Wald test p-value
-        if (nrow(summary(model)$coefficients) > 1) {
-          p_value <- summary(model)$coefficients[2, 4]
-        } else {
-          p_value <- NA
-        }
-        
-        control_count <- control_counts[is.na(names(control_counts))]
-        control_pct_val <- control_pct[is.na(names(control_pct))]
-        case_count <- case_counts[is.na(names(case_counts))]
-        case_pct_val <- case_pct[is.na(names(case_pct))]
-        
-        baseline_descriptives <- rbind(
-          baseline_descriptives,
-          data.frame(
-            Characteristic = "",
-            Value = "Missing",
-            Control = sprintf("%d (%.1f%%)", control_count, control_pct_val),
-            Case = sprintf("%d (%.1f%%)", case_count, case_pct_val),
-            P_Value = format_p(p_value),
+            OR = ifelse(is.na(or_values[idx]), "NA", sprintf("%.2f", or_values[idx])),
+            P_Value = format_p(p_values[idx]),
             stringsAsFactors = FALSE
           )
         )
@@ -640,13 +685,9 @@ baseline_desc_fun <- function(df) {
   }
   
   # View the final table using kable
-  kable(baseline_descriptives, format = "latex")
+  knitr::kable(baseline_descriptives, format = "latex")
 }
 
-  
-  # View the final table 
-  
-  # print(baseline_descriptives)
 
 
 
@@ -659,7 +700,7 @@ baseline_desc_fun <- function(df) {
 
 
 # load madymo_nhtsa_df_listwise from csv
-madymo_nhtsa_df_listwise <- vroom::vroom(file.path("data", "madymo_nhtsa_df_listwise.csv"))
+madymo_nhtsa_df_listwise <- readRDS(file.path("data", "madymo_nhtsa_df_listwise.rds"))
 
 # select only relevant columns
 columns_final <- c("ID", "HIPR", "BAGDEPLOY_BIN", "BELTUSE_BIN", "BMI", 
@@ -674,15 +715,74 @@ madymo_nhtsa_df_listwise <- madymo_nhtsa_df_listwise %>%
 
 # define occupant variables
 occ_vars <- c("SEX_BIN", "AGE", "BMI")
-# define env_vars
+# define environment vars
 env_vars <- c("WEATHER", "MAKE", "MODELYR", "VEHWGT", "TIME", "VEHTYPE")
-# SIMULATION VARIABLES model
+# define simulation variables
 sim_vars <- c("DV_MPH", "SEATPOS", "BELTUSE_BIN", "BAGDEPLOY_BIN")
+
+
+# ≥20 years old,\ndriver or front passenger seat positions,\nsingle-event frontal crashes\nbetween 5 and 40 miles per hour delta V
+
+criteria_diagram_png_path <- file.path("r_docs", "images", "criteria_diagram.png")
+design <- tibble::tribble(
+  ~left,                           ~n_left, ~right,              ~n_right,
+  "Base population",        113579,    "Demographic and crash\nexclusion criteria applied",       98487,
+  "Study population",              15092,     "Participants with\nmissing exposure data", 1610,
+  "Complete-case set", 13482,     "",                  NA_integer_
+  )
+
+# Plot
+exclusion_flowchart(design, width = 2) %>%
+  export_svg() %>%
+  charToRaw() %>%
+  rsvg_png(file = criteria_diagram_png_path,
+           width = 1800)
+
+
+
+
+# criteria_diagram_png_long_path <- file.path("r_docs", "images", "criteria_diagram.png")
+# grViz(
+#   "digraph flowchart {
+#       # node definitions with substituted label text
+#       node [fontname = Helvetica, shape = rectangle]        
+#       tab1 [label = '@@1']
+#       tab2 [label = '@@2']
+#       tab3 [label = '@@3']
+#       tab4 [label = '@@4']
+#       tab5 [label = '@@5']
+#       tab6 [label = '@@6']
+#       tab7 [label = '@@7']
+#       tab8 [label = '@@8']
+#       tab9 [label = '@@9']
+# 
+#       # edge definitions with the node IDs
+#       tab1 -> tab2 -> tab3 -> tab4 -> tab5 -> tab6 -> tab7 -> tab8 -> tab9;
+#       }
+# 
+#       [1]: 'Count before any filters: 113579'
+#       [2]: 'Count after ≥20 years old: 84268'
+#       [3]: 'Count after only driver or front passenger seat positions: 73209'
+#       [4]: 'Count after single-event crashes: 34663'
+#       [5]: 'Count after only frontal crashes: 21349'
+#       [6]: 'Count after between 5 and 40 miles per hour delta V: 15092'
+#       [7]: 'Count after no seatbelt NA: 13490'
+#       [8]: 'Count after no airbag NA: 13482'
+#       [9]: 'Final count: 13482'
+#       "
+# ) %>%
+#   export_svg() %>%
+#   charToRaw() %>%
+#   rsvg_png(file = criteria_diagram_png_long_path,
+#            width = 1800)
+
 
 
 # load models from madymo_nhtsa_models.RData
 load(file.path("data", "madymo_nhtsa_models.RData"))
 
+# load in- exclusion criteria statements 
+load(file.path("data", "criteria_list.RData"))
 
 # compare performance of models
 comp <- c(
@@ -691,9 +791,10 @@ comp <- c(
   "multivariate_model_listwise_final_interaction")
 
 models_listwise_comparison_df <- compare_df_fun(comp)
-models_listwise_comparison_df$Model <- c("Univariate", 
-             "Final", 
-             "Interaction")
+models_listwise_comparison_df$Model <- c(
+  "Univariate", 
+  "Final", 
+  "Interaction")
 print(models_listwise_comparison_df)
 
 
