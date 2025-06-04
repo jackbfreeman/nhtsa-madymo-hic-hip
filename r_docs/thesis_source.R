@@ -519,31 +519,29 @@ baseline_desc_fun <- function(df) {
     stringsAsFactors = FALSE
   )
   
-  svy_design_obj <- svydesign(
+  # Process each variable
+  for (var in baseline_vars) {
+    if (var$type == "continuous") {
+      # Continuous variables: Logistic regression for OR and p-value
+      formula <- as.formula(paste("HIPR ~", var$var_name))
+      
+      # create survey design object
+      svy_design_temp <- svydesign(
         ids = ~ PSU,
         strata = ~ PSUSTRAT,
         weights = ~ RATWGT,
         data = df,
         nest = TRUE
       )
-  
-  # Process each variable
-  for (var in baseline_vars) {
-    if (var$type == "continuous") {
-      # Continuous variables: Logistic regression for OR and p-value
-      formula <- as.formula(paste("HIPR ~", var$var_name))
-      # define survey design for odds ratios in baseline characteristics
       
       # Fit the model
       model <- svyglm(
         formula,
         family = quasibinomial,
-        design = svy_design_obj
+        design = svy_design_temp
       )
       
-      
       coef_table <- summary(model)$coefficients
-      
       
       if (nrow(coef_table) > 1) {
         or_value <- exp(coef_table[2, 1])
@@ -632,12 +630,22 @@ baseline_desc_fun <- function(df) {
       temp_var_name <- paste0("temp_", var$var_name)
       df[[temp_var_name]] <- current_var
       
-      # Run logistic regression (handle errors)
-      model_formula <- as.formula(paste("HIPR ~", temp_var_name))
-      model <- tryCatch(
-        glm(model_formula, data = df, family = binomial()),
-        error = function(e) NULL
+      # Create survey design object with the temporary variable
+      svy_design_temp <- svydesign(
+        ids = ~ PSU,
+        strata = ~ PSUSTRAT,
+        weights = ~ RATWGT,
+        data = df,
+        nest = TRUE
       )
+      
+      # Run survey logistic regression (handle errors)
+      model_formula <- as.formula(
+        paste("HIPR ~", temp_var_name))
+      model <- svyglm(
+        model_formula, 
+        design = svy_design_temp, 
+        family = quasibinomial())
       
       # Precompute ORs and p-values for each level
       or_values <- rep(NA, length(all_levels))
@@ -648,9 +656,10 @@ baseline_desc_fun <- function(df) {
         coef_table <- summary(model)$coefficients
         n_coef <- nrow(coef_table)
         for (i in 2:length(all_levels)) {
-          if (i <= n_coef) {
-            or_values[i] <- exp(coef_table[i, "Estimate"])
-            p_values[i] <- coef_table[i, "Pr(>|z|)"]
+          coef_name <- paste0(temp_var_name, all_levels[i])
+          if (coef_name %in% rownames(coef_table)) {
+            or_values[i] <- exp(coef_table[coef_name, "Estimate"])
+            p_values[i] <- coef_table[coef_name, "Pr(>|t|)"]
           }
         }
       }
