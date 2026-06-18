@@ -1640,19 +1640,6 @@ final_imp_fit <- summarize_imputed_models(paste("CONCUSSION ~ HIC15 +", paste(fi
 # This differs from the listwise-deleted model, so it is ignored going forward
 ```
 
-```{r comparing model performance, eval=FALSE, include=FALSE}
-# This code is no longer used; kept for reference as a structure for comparing imputed-model performance
-
-compared_imp_models <- list(
-  "uni_imp_fit", 
-  "occ_imp_fit",
-  "env_imp_fit",
-  "sim_imp_fit",
-  "final_imp_fit")
-
-compare_models(compared_imp_models)
-```
-
 ```{r save madymo nhtsa df, include=FALSE}
 # Save the listwise data frame to disk
 saveRDS(madymo_nhtsa_df_listwise, file.path("data", "madymo_nhtsa_df_listwise.rds"))
