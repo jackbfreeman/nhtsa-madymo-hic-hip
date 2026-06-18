@@ -1,0 +1,57 @@
+# ============================================================================
+# R / RStudio session and build files
+# ============================================================================
+.Rhistory
+.Rapp.history
+.RData
+.RDataTmp
+.Ruserdata
+.Renviron
+.Rproj.user/
+.httr-oauth
+*-Ex.R
+/*.tar.gz
+/*.Rcheck/
+*_cache/
+/cache/
+*.utf8.md
+*.knit.md
+vignettes/*.html
+vignettes/*.pdf
+docs/
+po/*~
+rsconnect/
+
+# ============================================================================
+# OS / editor junk
+# ============================================================================
+.DS_Store
+**/.DS_Store
+*.smbdelete*
+
+# ============================================================================
+# Large data — hosted on OSF (https://doi.org/10.17605/OSF.IO/VHK2P).
+# Download into data/ to reproduce; see README.
+# data/MADYMO_df.csv is kept on purpose (small, validated MADYMO HIC results).
+# ============================================================================
+data/NHTSA_databases/
+data/minimal_simulations/
+data/nhtsa_combined_df_saved_cds.csv
+data/madymo_nhtsa_df_mice.csv
+data/*.RData
+data/*.rds
+
+# ============================================================================
+# knitr / LaTeX build artifacts (the manuscript is built from the .Rmd)
+# ============================================================================
+r_docs/*_files/
+r_docs/*.tex
+r_docs/*.log
+r_docs/*.docx
+r_docs/*.pdf
+
+# ============================================================================
+# Submission / reference material — not part of the public code repo
+# (journal forms, graphical abstract, NHTSA manuals [available from NHTSA])
+# ============================================================================
+other_docs/

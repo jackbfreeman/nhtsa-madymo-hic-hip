@@ -1,0 +1,14 @@
+---
+title: "Highlights"
+output: word_document
+---
+
+- MADYMO HIC15 scores predict head injury risk in frontal crashes with an AUC of 0.7.
+
+- Crash speed, BMI, and time of day significantly influence the relationship.
+
+- HIC15 alone predicts head injury risk, unaffected by crash characteristics.
+
+- Future research should develop MADYMO models with scalable height and weight.
+
+- This study validates MADYMO HIC15 for predicting head injury risk in frontal crashes.
